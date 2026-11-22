@@ -1,0 +1,1669 @@
+﻿
+
+==================== FILE: main.py ====================
+
+import os
+import sys
+import traceback
+import flet as ft
+
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+if APP_ROOT not in sys.path:
+    sys.path.insert(0, APP_ROOT)
+
+
+def resource_path(relative_path):
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    p1 = os.path.join(APP_ROOT, relative_path)
+    if os.path.exists(p1):
+        return p1
+    p2 = os.path.join(APP_ROOT, "assets", relative_path)
+    if os.path.exists(p2):
+        return p2
+    return p1
+
+
+def main(page: ft.Page):
+    # 1. رسم الإطار الأول فوراً قبل أي استيراد أو قاعدة بيانات (يمنع الشاشة البيضاء 100%)
+    page.title = "فريق الملوك لكرة القدم"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.bgcolor = "#0B1120"
+    page.dark_theme = ft.Theme(
+        color_scheme_seed=ft.Colors.AMBER,
+        scaffold_bgcolor="#0B1120",
+    )
+    page.theme = ft.Theme(
+        color_scheme_seed=ft.Colors.AMBER,
+        scaffold_bgcolor="#0B1120",
+    )
+    page.rtl = True
+    page.padding = 0
+
+    boot_status = ft.Text("جاري تشغيل نظام فريق الملوك... ⚽", size=16, color=ft.Colors.AMBER, weight="bold")
+    boot_box = ft.Container(
+        bgcolor="#0B1120",
+        expand=True,
+        alignment=ft.Alignment.CENTER,
+        padding=20,
+        content=ft.Column(
+            [
+                ft.Icon(ft.Icons.SPORTS_SOCCER, size=60, color=ft.Colors.AMBER),
+                boot_status,
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+    )
+    page.add(boot_box)
+    page.update()
+
+    def show_fatal_error(stage, err_text):
+        boot_box.content = ft.Column(
+            [
+                ft.Text(f"⚠️ توقف التشغيل في مرحلة: {stage}", size=17, weight="bold", color=ft.Colors.RED_400),
+                ft.Divider(),
+                ft.Text(err_text, size=12, color=ft.Colors.WHITE, selectable=True),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+        page.update()
+
+    # 2. تهيئة طبقة التوافق ومجلد التخزين الآمن بعد ظهور الشاشة
+    try:
+        import flet_compat
+        flet_compat.apply_flet_compat()
+
+        if sys.platform == "win32":
+            app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_ROOT
+            os.chdir(app_dir)
+        else:
+            data_dir = os.getenv("FLET_APP_STORAGE_DATA") or os.path.expanduser("~")
+            os.makedirs(data_dir, exist_ok=True)
+            if os.access(data_dir, os.W_OK):
+                os.chdir(data_dir)
+    except Exception:
+        show_fatal_error("تهيئة التخزين والتوافق", traceback.format_exc())
+        return
+
+    # 3. استيراد الوحدات وقاعدة البيانات داخل حماية كاملة
+    try:
+        from database import DatabaseManager
+        from views.login import LoginView
+        from views.data_manage import DataManageView
+        from views.notifications import NotificationsView
+        from views.chat import ChatView
+        from views.sync_settings import SyncSettingsView
+        db = DatabaseManager()
+    except Exception:
+        show_fatal_error("تحميل الوحدات وقاعدة البيانات", traceback.format_exc())
+        return
+
+    # 4. إدارة التنقل بين الشاشات مباشرة داخل root_host عبر page.add (الأكثر استقراراً في Flet 1.1.2)
+    icon_file = resource_path("icon_new.png")
+    root_host = ft.Container(expand=True, bgcolor="#0B1120")
+
+    def navigate_to(route_name):
+        try:
+            page.route = route_name
+            if route_name == "/login" or route_name == "/":
+                root_host.content = LoginView(page, db)
+
+            elif route_name == "/dashboard":
+                user = page.session.get("user") or "مستخدم"
+                role = page.session.get("role") or "member"
+
+                v_notif = NotificationsView(db, role, page)
+                v_chat = ChatView(db, user, page)
+
+                if role == "admin":
+                    v_data = DataManageView(db, page)
+                    v_sync = SyncSettingsView(page, db)
+                    main_container = ft.Container(content=v_data, expand=True)
+                    dest = [
+                        ft.NavigationBarDestination(icon=ft.Icons.PEOPLE, label="البيانات"),
+                        ft.NavigationBarDestination(icon=ft.Icons.NOTIFICATIONS, label="الإشعارات"),
+                        ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="الدردشة"),
+                        ft.NavigationBarDestination(icon=ft.Icons.SYNC, label="المزامنة"),
+                    ]
+
+                    def on_nav(e):
+                        idx = e.control.selected_index
+                        if idx == 0:
+                            main_container.content = v_data
+                        elif idx == 1:
+                            main_container.content = v_notif
+                        elif idx == 2:
+                            main_container.content = v_chat
+                        elif idx == 3:
+                            main_container.content = v_sync
+                        page.update()
+                else:
+                    main_container = ft.Container(content=v_notif, expand=True)
+                    dest = [
+                        ft.NavigationBarDestination(icon=ft.Icons.NOTIFICATIONS, label="الإشعارات"),
+                        ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="الدردشة"),
+                    ]
+
+                    def on_nav(e):
+                        idx = e.control.selected_index
+                        if idx == 0:
+                            main_container.content = v_notif
+                        elif idx == 1:
+                            main_container.content = v_chat
+                        page.update()
+
+                app_bar = ft.Container(
+                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    content=ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Image(src=icon_file, width=32, height=32, fit=ft.BoxFit.CONTAIN)
+                                    if os.path.exists(icon_file)
+                                    else ft.Icon(ft.Icons.SPORTS_SOCCER, color=ft.Colors.AMBER),
+                                    ft.Text(f"أهلاً {user}", size=18, weight="bold"),
+                                ]
+                            ),
+                            ft.IconButton(
+                                ft.Icons.LOGOUT,
+                                on_click=lambda e: navigate_to("/login"),
+                                tooltip="تسجيل خروج",
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                )
+
+                footer = ft.Container(
+                    content=ft.Text("Devloper Mahammd Almoola 2026", size=11, color=ft.Colors.GREY_500),
+                    alignment=ft.Alignment.CENTER,
+                    padding=4,
+                )
+
+                root_host.content = ft.Column(
+                    [
+                        app_bar,
+                        main_container,
+                        ft.NavigationBar(destinations=dest, on_change=on_nav, selected_index=0),
+                        footer,
+                    ],
+                    expand=True,
+                    spacing=0,
+                )
+
+            page.controls.clear()
+            page.add(root_host)
+            page.update()
+        except Exception:
+            page.controls.clear()
+            page.add(boot_box)
+            show_fatal_error(f"بناء الشاشة ({route_name})", traceback.format_exc())
+
+    page.go = navigate_to
+
+    if not hasattr(page, "open"):
+        def _safe_open(ctrl):
+            ctrl.open = True
+            if ctrl not in page.overlay:
+                page.overlay.append(ctrl)
+            page.update()
+        page.open = _safe_open
+
+    navigate_to("/login")
+
+
+if __name__ == "__main__":
+    ft.run(main, assets_dir=APP_ROOT)
+
+==================== FILE: database.py ====================
+
+import os
+import sqlite3
+import hashlib
+import base64
+import itertools
+import json
+from datetime import datetime, timedelta
+
+
+# مفتاح التشفير الداخلي المعتمد على مكتبات بايثون القياسية (متوافق 100% مع Android و Windows)
+_SECRET_KEY = hashlib.sha256(b"Almolouk_Team_2026_Moola_SecureKey").digest()
+
+
+class DatabaseManager:
+    def __init__(self, db_name="almolouk_pro.db"):
+        self.db_name = db_name
+        self.init_db()
+
+    def get_connection(self):
+        return sqlite3.connect(self.db_name, check_same_thread=False)
+
+    def encrypt_text(self, plain_text: str) -> str:
+        """تشفير النصوص والرسائل والإشعارات بدون الحاجة لمكتبة cryptography"""
+        if not plain_text:
+            return ""
+        raw = str(plain_text).encode("utf-8")
+        xored = bytes(b ^ k for b, k in zip(raw, itertools.cycle(_SECRET_KEY)))
+        return base64.urlsafe_b64encode(xored).decode("utf-8")
+
+    def decrypt_text(self, cipher_text: str) -> str:
+        """فك تشفير النصوص والرسائل المشفرة"""
+        if not cipher_text:
+            return ""
+        try:
+            xored = base64.urlsafe_b64decode(str(cipher_text).encode("utf-8"))
+            raw = bytes(b ^ k for b, k in zip(xored, itertools.cycle(_SECRET_KEY)))
+            return raw.decode("utf-8")
+        except Exception:
+            return str(cipher_text)
+
+    def init_db(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # 1. جدول المستخدمين والصلاحيات
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member'
+            )
+        """)
+
+        # 2. جدول بيانات أعضاء فريق الملوك
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT,
+                position TEXT,
+                jersey_number TEXT,
+                age TEXT,
+                notes TEXT,
+                created_at TEXT
+            )
+        """)
+
+        # 3. جدول الإشعارات الإدارية
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                notif_type TEXT DEFAULT 'عام',
+                sender TEXT,
+                created_at TEXT
+            )
+        """)
+
+        # 4. جدول رسائل الدردشة والصوتيات
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT NOT NULL,
+                message TEXT,
+                audio_data TEXT,
+                msg_type TEXT DEFAULT 'text',
+                created_at TEXT
+            )
+        """)
+
+        # 5. جدول الإعدادات السحابية والترخيص
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT
+            )
+        """)
+
+        # إضافة حساب المدير الافتراضي إن لم يكن موجوداً
+        cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                ("admin", "1234", "admin"),
+            )
+
+        conn.commit()
+        conn.close()
+
+    # --- دوال تسجيل الدخول والمستخدمين ---
+    def verify_user(self, username: str, password: str):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT role FROM users WHERE username = ? AND password = ?",
+            (username.strip(), password.strip()),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+
+    def add_user(self, username: str, password: str, role: str = "member"):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                (username.strip(), password.strip(), role),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        finally:
+            conn.close()
+
+    def get_all_users(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, role FROM users ORDER BY id ASC")
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def delete_user(self, user_id: int):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE id = ? AND username != 'admin'", (user_id,))
+        conn.commit()
+        conn.close()
+
+    # --- دوال إدارة الأعضاء ---
+    def add_member(self, name, phone="", position="", jersey_number="", age="", notes=""):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        cursor.execute(
+            """
+            INSERT INTO members (name, phone, position, jersey_number, age, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (name, phone, position, jersey_number, age, notes, now),
+        )
+        conn.commit()
+        conn.close()
+
+    def update_member(self, member_id, name, phone="", position="", jersey_number="", age="", notes=""):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE members
+            SET name = ?, phone = ?, position = ?, jersey_number = ?, age = ?, notes = ?
+            WHERE id = ?
+            """,
+            (name, phone, position, jersey_number, age, notes, member_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def delete_member(self, member_id: int):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM members WHERE id = ?", (member_id,))
+        conn.commit()
+        conn.close()
+
+    def get_all_members(self, search_query: str = ""):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if search_query.strip():
+            like_q = f"%{search_query.strip()}%"
+            cursor.execute(
+                """
+                SELECT id, name, phone, position, jersey_number, age, notes, created_at
+                FROM members
+                WHERE name LIKE ? OR phone LIKE ? OR position LIKE ? OR jersey_number LIKE ?
+                ORDER BY id DESC
+                """,
+                (like_q, like_q, like_q, like_q),
+            )
+        else:
+            cursor.execute(
+                "SELECT id, name, phone, position, jersey_number, age, notes, created_at FROM members ORDER BY id DESC"
+            )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    # --- دوال الإشعارات المشفرة ---
+    def add_notification(self, title: str, body: str, notif_type: str = "عام", sender: str = "الإدارة"):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        enc_title = self.encrypt_text(title)
+        enc_body = self.encrypt_text(body)
+        cursor.execute(
+            """
+            INSERT INTO notifications (title, body, notif_type, sender, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (enc_title, enc_body, notif_type, sender, now),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_notifications(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, title, body, notif_type, sender, created_at FROM notifications ORDER BY id DESC"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            result.append(
+                (r[0], self.decrypt_text(r[1]), self.decrypt_text(r[2]), r[3], r[4], r[5])
+            )
+        return result
+
+    def delete_notification(self, notif_id: int):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM notifications WHERE id = ?", (notif_id,))
+        conn.commit()
+        conn.close()
+
+    # --- دوال الدردشة والرسائل الصوتية المشفرة ---
+    def add_chat_message(self, sender=None, message=None, content=None, audio_data=None, msg_type="text", file_path=None, audio_path=None, **kwargs):
+        audio_data = audio_data if audio_data is not None else (audio_path if audio_path is not None else file_path)
+        audio_data = audio_data if audio_data is not None else (audio_path if audio_path is not None else file_path)
+        message = content if content is not None else (message if message is not None else "")
+        file_path = audio_path if audio_path is not None else file_path
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        enc_msg = self.encrypt_text(message) if message else ""
+        cursor.execute(
+            """
+            INSERT INTO chat_messages (sender, message, audio_data, msg_type, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (sender, enc_msg, audio_data, msg_type, now),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_chat_messages(self, limit: int = 100):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, sender, message, audio_data, msg_type, created_at
+            FROM chat_messages
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            result.append(
+                (r[0], r[1], self.decrypt_text(r[2]), r[3], r[4], r[5])
+            )
+        return result
+
+    def clear_chat(self):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_messages")
+        conn.commit()
+        conn.close()
+
+    # --- دوال الإعدادات ونظام الترخيص ---
+    def set_setting(self, key: str, value: str):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
+            (key, str(value)),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_setting(self, key: str, default: str = ""):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else default
+
+    def check_license_status(self, trial_days: int = 30):
+        """التحقق من صلاحية الترخيص ومنع التلاعب بتاريخ الجهاز"""
+        now = datetime.now()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        enc_expiry = self.get_setting("lic_expiry")
+        enc_last_seen = self.get_setting("lic_last_seen")
+
+        if not enc_expiry:
+            expiry_dt = now + timedelta(days=trial_days)
+            self.set_setting("lic_expiry", self.encrypt_text(expiry_dt.strftime("%Y-%m-%d %H:%M:%S")))
+            self.set_setting("lic_last_seen", self.encrypt_text(now_str))
+            return True, f"نسخة مفعلة ({trial_days} يوم متبقي)"
+
+        try:
+            expiry_dt = datetime.strptime(self.decrypt_text(enc_expiry), "%Y-%m-%d %H:%M:%S")
+            if enc_last_seen:
+                last_seen_dt = datetime.strptime(self.decrypt_text(enc_last_seen), "%Y-%m-%d %H:%M:%S")
+                if now < last_seen_dt - timedelta(minutes=10):
+                    return False, "تم اكتشاف تلاعب بساعة الجهاز! يرجى ضبط الوقت أو إدخال مفتاح التجديد."
+
+            if now > expiry_dt:
+                return False, "انتهت مدة صلاحية النسخة. يرجى التواصل مع المطور للتجديد."
+
+            self.set_setting("lic_last_seen", self.encrypt_text(now_str))
+            remaining = (expiry_dt - now).days
+            return True, f"الترخيص ساري ({remaining} يوم متبقي)"
+        except Exception:
+            return False, "بيانات الترخيص غير صالحة."
+
+    def renew_license(self, master_key: str, extra_days: int = 365):
+        """تجديد الترخيص باستخدام المفتاح الرئيسي للمطور"""
+        if master_key.strip() == "Moola@2026":
+            new_expiry = (datetime.now() + timedelta(days=extra_days)).strftime("%Y-%m-%d %H:%M:%S")
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.set_setting("lic_expiry", self.encrypt_text(new_expiry))
+            self.set_setting("lic_last_seen", self.encrypt_text(now_str))
+            return True, f"تم تجديد الترخيص بنجاح لمدة {extra_days} يوم!"
+        return False, "مفتاح التجديد غير صحيح."
+
+    @property
+    def cursor(self):
+        import sqlite3
+        conn = getattr(self, "conn", None) or getattr(self, "connection", None)
+        if conn is None and hasattr(self, "get_connection"):
+            conn = self.get_connection()
+            self.conn = conn
+        if conn is None:
+            # البحث عن اسم ملف قاعدة البيانات الفعلي داخل خصائص الكائن
+            db_file = None
+            for attr in ("db_path", "db_name", "database", "db_file", "path"):
+                val = getattr(self, attr, None)
+                if isinstance(val, str) and val.endswith(".db"):
+                    db_file = val
+                    break
+            if not db_file:
+                for fn in os.listdir("."):
+                    if fn.endswith(".db"):
+                        db_file = fn
+                        break
+            db_file = db_file or "almolouk.db"
+            conn = sqlite3.connect(db_file, check_same_thread=False)
+            self.conn = conn
+
+        cur = conn.cursor()
+        # ترقية تلقائية للأعمدة الناقصة في الجداول الموجودة (مثل address في جدول players/members)
+        if not getattr(self, "_schema_checked", False):
+            self._schema_checked = True
+            try:
+                cur.execute("CREATE TABLE IF NOT EXISTS admins (id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT, name TEXT, username TEXT, password TEXT, phone TEXT, role TEXT DEFAULT \'admin\', address TEXT DEFAULT \'\', facebook TEXT DEFAULT \'\', notes TEXT DEFAULT \'\', status TEXT DEFAULT \'active\', created_at TEXT DEFAULT \'\')")
+                tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                for tbl in tables:
+                    cols = [c[1] for c in cur.execute(f"PRAGMA table_info({tbl})").fetchall()]
+                    if any(k in cols for k in ("full_name", "name", "phone", "position")):
+                        for req_col in ('address', 'birth_date', 'category', 'created_at', 'email', 'facebook', 'id', 'image', 'instagram', 'jersey_number', 'join_date', 'name', 'notes', 'number', 'phone', 'photo', 'role', 'status', 'team', 'tiktok', 'twitter', 'updated_at', 'whatsapp'):
+                            if req_col not in cols:
+                                try:
+                                    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {req_col} TEXT DEFAULT ''")
+                                except Exception:
+                                    pass
+                conn.commit()
+            except Exception:
+                pass
+        return cur
+
+==================== FILE: views\data_manage.py ====================
+
+import flet as ft
+
+def DataManageView(db, page):
+    current_table = ["members"]
+    selected_id = [None]
+    
+    search_input = ft.TextField(label="بحث بالاسم...", expand=True)
+    name = ft.TextField(label="الاسم", expand=True)
+    phone = ft.TextField(label="رقم الهاتف", expand=True)
+    address = ft.TextField(label="العنوان", expand=True)
+    facebook = ft.TextField(label="رابط الفيس بوك", expand=True)
+    role_drop = ft.Dropdown(label="الصلاحية", options=[ft.dropdown.Option("عضو"), ft.dropdown.Option("مخول")], value="عضو", width=100)
+
+    data_table = ft.DataTable(
+        columns=[
+            ft.DataColumn(ft.Text("م")), 
+            ft.DataColumn(ft.Text("الاسم")), 
+            ft.DataColumn(ft.Text("الهاتف")), 
+            ft.DataColumn(ft.Text("العنوان")), 
+            ft.DataColumn(ft.Text("الفيس بوك")),
+            ft.DataColumn(ft.Text("إجراء"))
+        ], rows=[]
+    )
+
+    # أضفنا متغير is_init لمنع تحديث الشاشة قبل رسمها في التحميل الأول
+    def load_data(table=None, search_term="", is_init=False):
+        if table: current_table[0] = table
+        data_table.rows.clear()
+        
+        query = f"SELECT id, name, phone, address, facebook FROM {current_table[0]}"
+        params = ()
+        if search_term:
+            query += " WHERE name LIKE ?"
+            params = (f"%{search_term}%",)
+            
+        db.cursor.execute(query, params)
+        records = db.cursor.fetchall()
+        
+        if search_term and len(records) == 1:
+            on_row_click(records[0])
+            
+        for row in records:
+            r_data = row
+            data_table.rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(row[0]))),
+                        ft.DataCell(ft.Text(str(row[1]))),
+                        ft.DataCell(ft.Text(str(row[2]))),
+                        ft.DataCell(ft.Text(str(row[3]))),
+                        ft.DataCell(ft.Text(str(row[4]))),
+                        ft.DataCell(ft.IconButton(ft.Icons.EDIT, icon_color=ft.Colors.BLUE, tooltip="عرض للتعديل", on_click=lambda e, data=r_data: on_row_click(data)))
+                    ]
+                )
+            )
+        # لا نحدث الشاشة إذا كان هذا هو التحميل الأولي
+        if not is_init:
+            page.update()
+
+    def on_row_click(row_data):
+        selected_id[0] = row_data[0]
+        name.value = row_data[1]
+        phone.value = row_data[2]
+        address.value = row_data[3]
+        facebook.value = row_data[4]
+        page.update()
+
+    def clear_fields(e=None):
+        selected_id[0] = None
+        name.value = phone.value = address.value = facebook.value = search_input.value = ""
+        load_data()
+
+    def add_record(e):
+        if not name.value or not phone.value: return
+        target_table = "admins" if role_drop.value == "مخول" else "members"
+        try:
+            db.cursor.execute(f"INSERT INTO {target_table} (name, phone, address, facebook) VALUES (?, ?, ?, ?)", (name.value, phone.value, address.value, facebook.value))
+            db.conn.commit()
+            clear_fields()
+        except: 
+            page.snack_bar = ft.SnackBar(ft.Text("خطأ: تأكد أن رقم الهاتف غير مكرر"), bgcolor=ft.Colors.RED); page.snack_bar.open = True; page.update()
+
+    def update_record(e):
+        if not selected_id[0]: return
+        db.cursor.execute(f"UPDATE {current_table[0]} SET name=?, phone=?, address=?, facebook=? WHERE id=?", (name.value, phone.value, address.value, facebook.value, selected_id[0]))
+        db.conn.commit()
+        clear_fields()
+
+    def delete_record(e):
+        if not selected_id[0]: return
+        db.cursor.execute(f"DELETE FROM {current_table[0]} WHERE id=?", (selected_id[0],))
+        db.conn.commit()
+        clear_fields()
+
+    # تحميل البيانات الأولي بصمت
+    load_data(is_init=True)
+
+    # الحل الجذري للسكرول الأفقي والعمودي للجدول
+    table_container = ft.Container(
+        content=ft.Column(
+            [ft.Row([data_table], scroll=ft.ScrollMode.ALWAYS)], # سكرول أفقي
+            scroll=ft.ScrollMode.ALWAYS, # سكرول عمودي
+            expand=True
+        ),
+        expand=True,
+        border=ft.Border.all(1, ft.Colors.GREY_800),
+        border_radius=10,
+        padding=5
+    )
+
+    return ft.Container(
+        content=ft.Column([
+            ft.Text("إدارة السجلات والبيانات 👥", size=20, weight="bold", color=ft.Colors.AMBER),
+            ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=lambda e: load_data(search_term=search_input.value), tooltip="ابحث")]),
+            ft.Row([name, phone]), 
+            ft.Row([address, facebook]),
+            ft.Row([
+                role_drop,
+                ft.Button("إضافة", on_click=add_record, bgcolor=ft.Colors.GREEN),
+                ft.Button("تعديل", on_click=update_record, bgcolor=ft.Colors.BLUE),
+                ft.Button("حذف", on_click=delete_record, bgcolor=ft.Colors.RED),
+                ft.Button("تفريغ", on_click=clear_fields, bgcolor=ft.Colors.GREY),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([
+                ft.Button("عرض الأعضاء", on_click=lambda e: load_data("members"), expand=True),
+                ft.Button("عرض المخولين", on_click=lambda e: load_data("admins"), expand=True),
+            ]),
+            table_container # الحاوية الموسعة والمضبوطة للسكرول المزدوج
+        ]),
+        padding=10, expand=True
+    )
+
+==================== FILE: views\notifications.py ====================
+
+import flet as ft
+import threading
+from datetime import datetime, timedelta
+
+
+def NotificationsView(db, role, page):
+    notif_list = ft.Column(spacing=10, scroll="auto", expand=True)
+
+    # 1. قائمة نوع الإشعار
+    type_dropdown = ft.Dropdown(
+        label="نوع الإشعار",
+        value="تدريب",
+        options=[
+            ft.dropdown.Option("تدريب", "تدريب ⚽"),
+            ft.dropdown.Option("مباراة", "مباراة 🏆"),
+            ft.dropdown.Option("اجتماع", "اجتماع 📋"),
+            ft.dropdown.Option("إداري", "إداري 📢"),
+            ft.dropdown.Option("عاجل", "عاجل 🚨"),
+        ],
+        expand=True,
+    )
+
+    # 2. قائمة الفترة الزمنية لصلاحية الإشعار (يوم / أسبوع / شهر / دائم)
+    duration_dropdown = ft.Dropdown(
+        label="مدة صلاحية الإشعار ⏳",
+        value="7",
+        options=[
+            ft.dropdown.Option("1", "يوم واحد (24 ساعة)"),
+            ft.dropdown.Option("3", "3 أيام"),
+            ft.dropdown.Option("7", "أسبوع واحد (7 أيام)"),
+            ft.dropdown.Option("30", "شهر واحد (30 يوماً)"),
+            ft.dropdown.Option("0", "دائم (بدون انتهاء)"),
+        ],
+        expand=True,
+    )
+
+    content_input = ft.TextField(
+        label="نص الإشعار المراد إرساله للأعضاء...",
+        multiline=True,
+        min_lines=2,
+        max_lines=4,
+    )
+
+    send_btn = ft.Button(
+        "نشر وبث الإشعار (سحابي + واتساب / SMS) 🚀",
+        bgcolor=ft.Colors.AMBER_700,
+        color=ft.Colors.BLACK,
+        icon=ft.Icons.SEND,
+    )
+
+    DURATION_LABELS = {
+        "1": "يوم واحد",
+        "3": "3 أيام",
+        "7": "أسبوع",
+        "30": "شهر",
+        "0": "دائم",
+    }
+
+    def encode_content_with_duration(raw_text, duration_days):
+        """تضمين مدة الصلاحية وتاريخ الانتهاء مع نص الإشعار"""
+        label = DURATION_LABELS.get(duration_days, "أسبوع")
+        if duration_days == "0":
+            expiry_str = "PERMANENT"
+        else:
+            expiry_dt = datetime.now() + timedelta(days=int(duration_days))
+            expiry_str = expiry_dt.strftime("%Y-%m-%d %H:%M")
+        return f"[DUR:{label}|{expiry_str}]\n{raw_text}"
+
+    def parse_content_and_duration(stored_text):
+        """استخراج نص الإشعار الأصلي، وشارة المدة، وحالة الانتهاء"""
+        if stored_text.startswith("[DUR:") and "]\n" in stored_text:
+            header_part, actual_text = stored_text.split("]\n", 1)
+            meta = header_part.replace("[DUR:", "")
+            parts = meta.split("|")
+            duration_label = parts[0] if len(parts) > 0 else "دائم"
+            expiry_str = parts[1] if len(parts) > 1 else "PERMANENT"
+
+            is_expired = False
+            expiry_display = f"المدة: {duration_label}"
+            if expiry_str != "PERMANENT":
+                try:
+                    exp_dt = datetime.strptime(expiry_str, "%Y-%m-%d %H:%M")
+                    if datetime.now() > exp_dt:
+                        is_expired = True
+                    expiry_display = f"المدة: {duration_label} (ينتهي: {expiry_str})"
+                except Exception:
+                    pass
+            return actual_text, expiry_display, is_expired
+
+        return stored_text, "المدة: دائم", False
+
+    def get_badge_color(notif_type):
+        colors_map = {
+            "عاجل": ft.Colors.RED_700,
+            "مباراة": ft.Colors.GREEN_700,
+            "تدريب": ft.Colors.BLUE_700,
+            "اجتماع": ft.Colors.PURPLE_700,
+            "إداري": ft.Colors.TEAL_700,
+        }
+        return colors_map.get(notif_type, ft.Colors.GREY_700)
+
+    def delete_notif_action(notif_id):
+        db.delete_notification(notif_id)
+        load_notifications()
+        page.open(ft.SnackBar(ft.Text("تم حذف الإشعار 🗑️"), bgcolor=ft.Colors.GREY_800))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+    def build_notif_card(notif_id, notif_type, raw_stored_content, sender, timestamp, is_cloud=False):
+        clean_text, duration_info, is_expired = parse_content_and_duration(raw_stored_content)
+
+        # إخفاء الإشعارات المنتهية تلقائياً عن الأعضاء، مع إظهارها للمدير بشارة "منتهي"
+        if is_expired and role != "admin":
+            return None
+
+        header_controls = [
+            ft.Container(
+                content=ft.Text(notif_type, size=12, weight="bold", color=ft.Colors.WHITE),
+                bgcolor=get_badge_color(notif_type),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                border_radius=8,
+            ),
+            ft.Container(
+                content=ft.Text(
+                    "منتهي الصلاحية ⛔" if is_expired else f"⏳ {duration_info}",
+                    size=11,
+                    weight="bold",
+                    color=ft.Colors.RED_200 if is_expired else ft.Colors.AMBER_200,
+                ),
+                bgcolor=ft.Colors.RED_900 if is_expired else ft.Colors.BLUE_GREY_900,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=6,
+            ),
+            ft.Container(expand=True),
+            ft.Text(timestamp, size=11, color=ft.Colors.GREY_500),
+        ]
+
+        if role == "admin" and not is_cloud and notif_id is not None:
+            header_controls.append(
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    icon_color=ft.Colors.RED_400,
+                    icon_size=18,
+                    tooltip="حذف الإشعار",
+                    on_click=lambda e, nid=notif_id: delete_notif_action(nid),
+                )
+            )
+
+        return ft.Card(
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(header_controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Divider(height=1, color=ft.Colors.GREY_800),
+                        ft.Text(clean_text, size=15, weight="w500"),
+                        ft.Text(f"المرسل: {sender}", size=11, color=ft.Colors.GREY_400),
+                    ],
+                    spacing=8,
+                ),
+                padding=15,
+            )
+        )
+
+    def load_notifications():
+        notif_list.controls.clear()
+        local_notifs = db.get_notifications()
+
+        valid_cards = []
+        for _row in local_notifs:
+            nid, ntype, content, sender, created_at = (_row + (None,)*5)[:5]
+            card = build_notif_card(nid, ntype, content, sender, created_at, is_cloud=False)
+            if card is not None:
+                valid_cards.append(card)
+
+        if not valid_cards:
+            notif_list.controls.append(
+                ft.Container(
+                    content=ft.Text("لا توجد إشعارات سارية المفعول حالياً.", color=ft.Colors.GREY_500),
+                    alignment=ft.Alignment.CENTER,
+                    padding=30,
+                )
+            )
+        else:
+            notif_list.controls.extend(valid_cards)
+        page.update()
+
+    def sync_from_cloud(e=None):
+        """جلب الإشعارات الجديدة من سحابة Firebase"""
+        if db.get_setting("sync_enabled") != "1":
+            if e is not None:
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("المزامنة السحابية معطلة! فعّلها من تبويب المزامنة أولاً."),
+                    bgcolor=ft.Colors.ORANGE_800,
+                )
+                page.snack_bar.open = True
+                page.update()
+            return
+
+        if e is not None:
+            page.open(ft.SnackBar(ft.Text("جاري جلب الإشعارات من السحابة... ☁️"), bgcolor=ft.Colors.BLUE_700))
+            _sb.open = True
+            page.overlay.append(_sb) if _sb not in page.overlay else None
+            page.update()
+
+        def worker():
+            cloud_notifs = db.pull_notifications_from_cloud()
+            if cloud_notifs:
+                valid_cards = []
+                for item in cloud_notifs:
+                    card = build_notif_card(
+                        item["id"],
+                        item["type"],
+                        item["content"],
+                        item["sender"],
+                        item["timestamp"],
+                        is_cloud=True,
+                    )
+                    if card is not None:
+                        valid_cards.append(card)
+
+                notif_list.controls.clear()
+                if valid_cards:
+                    notif_list.controls.extend(valid_cards)
+                else:
+                    notif_list.controls.append(
+                        ft.Container(
+                            content=ft.Text("لا توجد إشعارات سارية المفعول حالياً.", color=ft.Colors.GREY_500),
+                            alignment=ft.Alignment.CENTER,
+                            padding=30,
+                        )
+                    )
+
+                if e is not None:
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text(f"تم تحديث الإشعارات من السحابة ({len(valid_cards)}) ✔️"),
+                        bgcolor=ft.Colors.GREEN_700,
+                    )
+                    page.snack_bar.open = True
+            else:
+                if e is not None:
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("لا توجد إشعارات جديدة في السحابة."),
+                        bgcolor=ft.Colors.GREY_800,
+                    )
+                    page.snack_bar.open = True
+            page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def send_notification_action(e):
+        notif_type = type_dropdown.value or "عام"
+        duration_days = duration_dropdown.value or "7"
+        raw_content = content_input.value.strip()
+
+        if not raw_content:
+            page.snack_bar = ft.SnackBar(
+                ft.Text("يرجى كتابة نص الإشعار أولاً! ⚠️"),
+                bgcolor=ft.Colors.RED_700,
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+
+        # تضمين الفترة الزمنية مع المحتوى للحفظ المحلي والسحابي
+        packaged_content = encode_content_with_duration(raw_content, duration_days)
+        duration_label = DURATION_LABELS.get(duration_days, "أسبوع")
+
+        # 1. الحفظ الفوري في قاعدة البيانات المحلية (SQLite) مشفراً
+        db.add_notification(notif_type, packaged_content, "الإدارة")
+        content_input.value = ""
+        load_notifications()
+
+        # 2. إشعار المستخدم ببدء الإرسال الفعلي في الخلفية
+        send_btn.disabled = True
+        page.snack_bar = ft.SnackBar(
+            ft.Text("جاري نشر الإشعار سحابياً وبثه للأعضاء... ⏳"),
+            bgcolor=ft.Colors.BLUE_700,
+        )
+        page.snack_bar.open = True
+        page.update()
+
+        # 3. التنفيذ الفعلي عبر الموزع الذكي (واتساب عند توفر الإنترنت أو SMS عند انقطاعه)
+        def background_dispatch():
+            db.push_notification_to_cloud(notif_type, packaged_content, "الإدارة")
+            broadcast_text = f"{raw_content}\n(صلاحية الإشعار: {duration_label})"
+            ok, final_status = db.smart_dispatch_notification(notif_type, broadcast_text)
+
+            send_btn.disabled = False
+            page.snack_bar = ft.SnackBar(
+                ft.Text(final_status),
+                bgcolor=ft.Colors.GREEN_700 if ok else ft.Colors.ORANGE_800,
+                duration=5000,
+            )
+            page.snack_bar.open = True
+            page.update()
+
+        threading.Thread(target=background_dispatch, daemon=True).start()
+
+    send_btn.on_click = send_notification_action
+
+    # بناء الواجهة حسب الصلاحية
+    controls = [
+        ft.Row(
+            [
+                ft.Text("إشعارات وتوجيهات الفريق 📢", size=20, weight="bold", color=ft.Colors.AMBER),
+                ft.IconButton(
+                    icon=ft.Icons.SYNC,
+                    icon_color=ft.Colors.AMBER,
+                    tooltip="مزامنة الإشعارات من السحابة",
+                    on_click=sync_from_cloud,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
+    ]
+
+    if role == "admin":
+        controls.append(
+            ft.Card(
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row([type_dropdown, duration_dropdown], spacing=10),
+                            content_input,
+                            ft.Row([send_btn], alignment=ft.MainAxisAlignment.END),
+                        ],
+                        spacing=10,
+                    ),
+                    padding=15,
+                )
+            )
+        )
+
+    controls.append(notif_list)
+
+    load_notifications()
+    if db.get_setting("sync_enabled") == "1":
+        sync_from_cloud()
+
+    return ft.Container(content=ft.Column(controls, expand=True), padding=10, expand=True)
+
+==================== FILE: views\chat.py ====================
+
+import flet as ft
+try:
+    import flet_audio as fta
+    import flet_audio_recorder as ftar
+except ImportError:
+    fta = ft
+    ftar = ft
+
+import os
+import time
+import threading
+from datetime import datetime
+
+
+def ChatView(db, user, page):
+    os.makedirs("local_audio", exist_ok=True)
+    os.makedirs("cloud_audio", exist_ok=True)
+
+    chat_list = ft.ListView(expand=True, spacing=10, auto_scroll=True, padding=10)
+    msg_input = ft.TextField(
+        hint_text="اكتب رسالة مشفرة للفريق...",
+        expand=True,
+        border_radius=20,
+        filled=True,
+        on_submit=lambda e: send_text_msg(e),
+    )
+
+    is_recording = False
+    current_record_path = None
+    active_audio = None
+
+    # تهيئة مسجل الصوت المدمج في Flet
+    audio_recorder = ftar.AudioRecorder(
+        audio_encoder=ftar.AudioEncoder.WAV,
+        on_state_changed=lambda e: None,
+    )
+    if audio_recorder not in page.overlay:
+        page.overlay.append(audio_recorder)
+
+    def play_voice_note(file_path):
+        """تشغيل الرسالة الصوتية المحلية أو المجلوبة من السحابة"""
+        nonlocal active_audio
+        if not file_path or not os.path.exists(file_path):
+            page.snack_bar = ft.SnackBar(
+                ft.Text("الملف الصوتي غير متوفر حالياً ⚠️"),
+                bgcolor=ft.Colors.RED_700,
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+
+        try:
+            if active_audio and active_audio in page.overlay:
+                active_audio.pause()
+                page.overlay.remove(active_audio)
+
+            # استخدام مسار نظيف للتشغيل
+            active_audio = fta.Audio(src=file_path, autoplay=True)
+            page.overlay.append(active_audio)
+            page.update()
+
+            page.snack_bar = ft.SnackBar(
+                ft.Text("جاري تشغيل الرسالة الصوتية 🔊"),
+                bgcolor=ft.Colors.TEAL_700,
+                duration=2000,
+            )
+            page.snack_bar.open = True
+            page.update()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"تعذر تشغيل الصوت: {ex}"),
+                bgcolor=ft.Colors.RED_700,
+            )
+            page.snack_bar.open = True
+            page.update()
+
+    def build_message_bubble(msg):
+        if isinstance(msg, (tuple, list)):
+            if len(msg) >= 6:
+                msg = {"id": msg[0], "sender": msg[1], "content": msg[2], "message": msg[2], "audio_data": msg[3], "msg_type": msg[4], "timestamp": msg[5]}
+            elif len(msg) == 5:
+                msg = {"sender": msg[0], "content": msg[1], "message": msg[1], "audio_data": msg[2], "msg_type": msg[3], "timestamp": msg[4]}
+            else:
+                msg = {"sender": str(msg[0]) if len(msg) > 0 else "عضو", "content": str(msg[1]) if len(msg) > 1 else "", "msg_type": "text", "timestamp": ""}
+
+        """بناء فقاعة الرسالة (نصية أو صوتية) مع تمييز المرسل"""
+        sender = msg.get("sender", "عضو")
+        msg_type = msg.get("type", "text")
+        content = msg.get("content", "")
+        audio_path = msg.get("audio_path")
+        timestamp = msg.get("timestamp", "")
+
+        is_me = (sender == user)
+        bubble_color = ft.Colors.BLUE_GREY_800 if is_me else ft.Colors.GREY_900
+        align = ft.MainAxisAlignment.END if is_me else ft.MainAxisAlignment.START
+
+        if msg_type == "audio":
+            body_control = ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.PLAY_CIRCLE_FILL,
+                        icon_color=ft.Colors.AMBER,
+                        icon_size=32,
+                        tooltip="تشغيل التسجيل الصوتي",
+                        on_click=lambda e, p=audio_path: play_voice_note(p),
+                    ),
+                    ft.Text("رسالة صوتية مشفرة 🎙️", size=14, weight="w500"),
+                ],
+                tight=True,
+            )
+        else:
+            body_control = ft.Text(content, size=15, selectable=True)
+
+        bubble = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        f"{'أنت' if is_me else sender}",
+                        size=11,
+                        weight="bold",
+                        color=ft.Colors.AMBER if is_me else ft.Colors.LIGHT_BLUE_300,
+                    ),
+                    body_control,
+                    ft.Text(timestamp, size=10, color=ft.Colors.GREY_500),
+                ],
+                spacing=4,
+                tight=True,
+            ),
+            bgcolor=bubble_color,
+            padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+            border_radius=15,
+            width=280,
+        )
+
+        return ft.Row([bubble], alignment=align)
+
+    def render_local_messages():
+        """عرض الرسائل المحفوظة في SQLite محلياً"""
+        chat_list.controls.clear()
+        messages = db.get_chat_messages()
+        if not messages:
+            chat_list.controls.append(
+                ft.Container(
+                    content=ft.Text("غرفة الدردشة المشفرة جاهزة. ابدأ المحادثة! 🔒", color=ft.Colors.GREY_500),
+                    alignment=ft.Alignment.CENTER,
+                    padding=30,
+                )
+            )
+        else:
+            for msg in messages:
+                chat_list.controls.append(build_message_bubble(msg))
+        page.update()
+
+    def sync_chat_messages(e=None):
+        """جلب أحدث الرسائل النصية والصوتية من Firebase"""
+        if db.get_setting("sync_enabled") != "1":
+            if e is not None:
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("المزامنة السحابية معطلة! فعّلها من تبويب المزامنة أولاً."),
+                    bgcolor=ft.Colors.ORANGE_800,
+                )
+                page.snack_bar.open = True
+                page.update()
+            return
+
+        if e is not None:
+            page.snack_bar = ft.SnackBar(
+                ft.Text("جاري مزامنة المحادثات والصوتيات من السحابة... ☁️"),
+                bgcolor=ft.Colors.BLUE_700,
+                duration=2000,
+            )
+            page.snack_bar.open = True
+            page.update()
+
+        def worker():
+            cloud_msgs = db.pull_chat_from_cloud()
+            if cloud_msgs:
+                render_local_messages()
+                if e is not None:
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("تم تحديث غرفة الدردشة بنجاح ✔️"),
+                        bgcolor=ft.Colors.GREEN_700,
+                        duration=2000,
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def send_text_msg(e):
+        """إرسال رسالة نصية محلياً ورفعها مشفرة إلى Firebase"""
+        text = msg_input.value.strip()
+        if not text:
+            return
+
+        msg_input.value = ""
+        db.add_chat_message(sender=user, msg_type="text", content=text)
+        render_local_messages()
+
+        def push_worker():
+            db.push_chat_to_cloud(sender=user, msg_type="text", content=text)
+
+        threading.Thread(target=push_worker, daemon=True).start()
+
+    def toggle_recording(e):
+        """بدء أو إيقاف التسجيل الصوتي وعرضه ورفعه تلقائياً للسحابة"""
+        nonlocal is_recording, current_record_path
+
+        if not is_recording:
+            # استخدام مسار نسبي نظيف لتجنب مشاكل المسافات في اسم مجلد المشروع (kings_project 1)
+            filename = f"voice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            current_record_path = f"local_audio/{filename}"
+            try:
+                audio_recorder.start_recording(output_path=current_record_path)
+                is_recording = True
+                mic_btn.icon = ft.Icons.STOP_CIRCLE
+                mic_btn.icon_color = ft.Colors.RED_500
+                mic_btn.tooltip = "إيقاف وإرسال التسجيل"
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("جاري تسجيل الصوت... اضغط مجدداً للإرسال 🎙️"),
+                    bgcolor=ft.Colors.RED_800,
+                )
+                page.snack_bar.open = True
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(
+                    ft.Text(f"تعذر الوصول للميكروفون: {ex}"),
+                    bgcolor=ft.Colors.RED_700,
+                )
+                page.snack_bar.open = True
+                page.update()
+        else:
+            # إيقاف التسجيل والتقاط المسار الفعلي الذي حفظ فيه النظام الملف
+            returned_path = None
+            try:
+                returned_path = audio_recorder.stop_recording()
+            except Exception:
+                pass
+
+            is_recording = False
+            mic_btn.icon = ft.Icons.MIC
+            mic_btn.icon_color = ft.Colors.AMBER
+            mic_btn.tooltip = "تسجيل رسالة صوتية"
+            page.update()
+
+            # اختيار المسار الصحيح الموجود فعلياً على القرص
+            saved_path = current_record_path
+            if returned_path and os.path.exists(returned_path):
+                saved_path = returned_path
+
+            def finalize_audio_message():
+                # مهلة قصيرة (0.8 ثانية) لكي ينهي نظام ويندوز تفريغ الصوت في الملف
+                time.sleep(0.8)
+
+                if saved_path and os.path.exists(saved_path):
+                    # 1. إضافة الفقاعة الصوتية فوراً إلى SQLite ولوحة الدردشة
+                    db.add_chat_message(sender=user, msg_type="audio", content="", audio_path=saved_path)
+                    render_local_messages()
+
+                    # 2. الرفع السحابي المشفر إذا كانت المزامنة مفعلة
+                    if db.get_setting("sync_enabled") == "1":
+                        page.snack_bar = ft.SnackBar(
+                            ft.Text("جاري تشفير ورفع الرسالة الصوتية للسحابة... ☁️"),
+                            bgcolor=ft.Colors.BLUE_700,
+                        )
+                        page.snack_bar.open = True
+                        page.update()
+
+                        ok = db.push_chat_to_cloud(sender=user, msg_type="audio", content="", audio_path=saved_path)
+                        if ok:
+                            page.snack_bar = ft.SnackBar(
+                                ft.Text("تم إرسال الرسالة الصوتية لجميع الأجهزة ✔️"),
+                                bgcolor=ft.Colors.GREEN_700,
+                            )
+                            page.snack_bar.open = True
+                            page.update()
+                    else:
+                        page.snack_bar = ft.SnackBar(
+                            ft.Text("تم إرسال الرسالة الصوتية في المحادثة ✔️"),
+                            bgcolor=ft.Colors.GREEN_700,
+                            duration=2000,
+                        )
+                        page.snack_bar.open = True
+                        page.update()
+                else:
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("لم يتم العثور على الملف الصوتي المسجل ⚠️"),
+                        bgcolor=ft.Colors.ORANGE_800,
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+
+            threading.Thread(target=finalize_audio_message, daemon=True).start()
+
+    mic_btn = ft.IconButton(
+        icon=ft.Icons.MIC,
+        icon_color=ft.Colors.AMBER,
+        tooltip="تسجيل رسالة صوتية",
+        on_click=toggle_recording,
+    )
+
+    send_btn = ft.IconButton(
+        icon=ft.Icons.SEND,
+        icon_color=ft.Colors.GREEN_400,
+        tooltip="إرسال الرسالة",
+        on_click=send_text_msg,
+    )
+
+    header = ft.Row(
+        [
+            ft.Text("غرفة الدردشة المشفرة 🔒", size=19, weight="bold", color=ft.Colors.AMBER),
+            ft.IconButton(
+                icon=ft.Icons.SYNC,
+                icon_color=ft.Colors.AMBER,
+                tooltip="تحديث المحادثات من السحابة",
+                on_click=sync_chat_messages,
+            ),
+        ],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    )
+
+    input_bar = ft.Container(
+        content=ft.Row([mic_btn, msg_input, send_btn], spacing=5),
+        padding=ft.Padding.only(top=5),
+    )
+
+    # تحميل الرسائل المحلية أولاً ثم جلب السحابية تلقائياً
+    render_local_messages()
+    if db.get_setting("sync_enabled") == "1":
+        sync_chat_messages()
+
+    return ft.Container(
+        content=ft.Column([header, ft.Divider(height=1), chat_list, input_bar], expand=True),
+        padding=10,
+        expand=True,
+    )
+
+==================== FILE: views\sync_settings.py ====================
+
+import flet as ft
+import requests
+
+
+def SyncSettingsView(page, db):
+    DEFAULT_FIREBASE_URL = "https://kingsteam-671a6-default-rtdb.asia-southeast1.firebasedatabase.app/"
+    saved_url = db.get_setting("api_url") or DEFAULT_FIREBASE_URL
+
+    sync_switch = ft.Switch(
+        label="تفعيل المزامنة السحابية (Firebase / UltraMsg)",
+        value=(db.get_setting("sync_enabled") == "1"),
+    )
+
+    api_url = ft.TextField(
+        label="رابط منصة Firebase (للمزامنة)",
+        value=saved_url,
+        text_align="left",
+    )
+
+    # إعدادات UltraMsg للواتساب
+    ultra_instance = ft.TextField(
+        label="UltraMsg Instance ID (مثال: instance12345)",
+        value=db.get_setting("ultra_instance"),
+        text_align="left",
+    )
+    ultra_token = ft.TextField(
+        label="UltraMsg Token (رمز مصادقة الواتساب)",
+        value=db.get_setting("ultra_token"),
+        password=True,
+        can_reveal_password=True,
+        text_align="left",
+    )
+
+    # إعدادات SMS الطارئ عند انقطاع الإنترنت
+    sms_mode_dropdown = ft.Dropdown(
+        label="وسيلة إرسال SMS عند انقطاع الإنترنت 📴",
+        value=db.get_setting("offline_sms_mode", "android_gateway"),
+        options=[
+            ft.dropdown.Option("android_gateway", "بوابة هاتف أندرويد (Wi-Fi / Hotspot محلي)"),
+            ft.dropdown.Option("usb_modem", "مودم USB بشريحة SIM (منفذ COM)"),
+        ],
+    )
+    sms_gateway_ip = ft.TextField(
+        label="رابط بوابة الهاتف (مثال: http://192.168.43.1:8080/send)",
+        value=db.get_setting("sms_gateway_ip"),
+        text_align="left",
+    )
+    sms_com_port = ft.TextField(
+        label="منفذ مودم الشريحة (مثال: COM3 أو COM4)",
+        value=db.get_setting("sms_com_port", "COM3"),
+        text_align="left",
+    )
+
+    msg_input = ft.TextField(label="محتوى رسالة الواتساب", multiline=True)
+    single_phone = ft.TextField(label="رقم الهاتف (+964...)", expand=True)
+
+    def get_members_options():
+        try:
+            db.cursor.execute("SELECT name, phone FROM members WHERE phone IS NOT NULL AND phone != '' AND phone != '123'")
+            rows = db.cursor.fetchall()
+            if not rows:
+                return [ft.dropdown.Option(key="", text="لا يوجد أعضاء مسجلون بأرقام هواتف", disabled=True)]
+            return [ft.dropdown.Option(key=str(row[1]), text=f"{row[0]} ({row[1]})") for row in rows]
+        except Exception:
+            return [ft.dropdown.Option(key="", text="خطأ في قراءة البيانات", disabled=True)]
+
+    def on_member_select(e):
+        if member_dropdown.value:
+            single_phone.value = member_dropdown.value
+            page.update()
+
+    member_dropdown = ft.Dropdown(
+        label="اختر عضواً من القائمة",
+        options=get_members_options(),
+        on_change=on_member_select,
+        expand=True,
+    )
+
+    def refresh_members(e):
+        member_dropdown.options = get_members_options()
+        member_dropdown.value = None
+        page.open(ft.SnackBar(ft.Text("تم تحديث قائمة الأعضاء بنجاح 🔄"), bgcolor=ft.Colors.BLUE_700))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+    def save_settings(e):
+        db.set_setting("sync_enabled", "1" if sync_switch.value else "0")
+        db.set_setting("api_url", api_url.value.strip())
+        db.set_setting("ultra_instance", ultra_instance.value.strip())
+        db.set_setting("ultra_token", ultra_token.value.strip())
+        db.set_setting("offline_sms_mode", sms_mode_dropdown.value)
+        db.set_setting("sms_gateway_ip", sms_gateway_ip.value.strip())
+        db.set_setting("sms_com_port", sms_com_port.value.strip())
+
+        page.open(ft.SnackBar(ft.Text("تم حفظ جميع إعدادات المزامنة والطوارئ ✔️"), bgcolor=ft.Colors.GREEN))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+    def test_firebase_connection(e):
+        url = api_url.value.strip()
+        if not url:
+            page.open(ft.SnackBar(ft.Text("يرجى إدخال رابط Firebase أولاً!"), bgcolor=ft.Colors.RED))
+            _sb.open = True
+            page.overlay.append(_sb) if _sb not in page.overlay else None
+            page.update()
+            return
+
+        test_endpoint = f"{url.rstrip('/')}/test_connection.json"
+        try:
+            res = requests.put(test_endpoint, json={"status": "connected", "team": "Almolouk"}, timeout=8)
+            if res.status_code == 200:
+                page.snack_bar = ft.SnackBar(ft.Text("تم الاتصال بنجاح بـ Firebase! قاعدة البيانات تستجيب 🟢"), bgcolor=ft.Colors.GREEN)
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text(f"رفض السيرفر الاتصال: {res.status_code}"), bgcolor=ft.Colors.ORANGE)
+        except Exception:
+            page.open(ft.SnackBar(ft.Text("فشل الوصول للسيرفر، تأكد من اتصال الإنترنت."), bgcolor=ft.Colors.RED))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+    def send_whatsapp_msg(e):
+        instance = ultra_instance.value.strip()
+        token = ultra_token.value.strip()
+        phone = single_phone.value.strip()
+        msg = msg_input.value.strip()
+
+        if not instance or not token or not phone or not msg:
+            page.open(ft.SnackBar(ft.Text("يرجى ملء الحقول (Instance, Token, الرقم، والرسالة)"), bgcolor=ft.Colors.RED))
+            _sb.open = True
+            page.overlay.append(_sb) if _sb not in page.overlay else None
+            page.update()
+            return
+
+        page.open(ft.SnackBar(ft.Text("جاري الإرسال عبر خوادم WhatsApp... ⏳"), bgcolor=ft.Colors.BLUE))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+        url = f"https://api.ultramsg.com/{instance}/messages/chat"
+        payload = {"token": token, "to": phone, "body": msg}
+
+        try:
+            response = requests.post(url, data=payload, timeout=10)
+            resp_text = response.text
+            if response.status_code == 200 and '"sent":"true"' in resp_text:
+                page.snack_bar = ft.SnackBar(ft.Text("تم إرسال رسالة الواتساب بنجاح! ✔️"), bgcolor=ft.Colors.GREEN)
+            elif "non-payment" in resp_text or "stopped" in resp_text:
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("تنبيه من UltraMsg: انتهت فترة اشتراك هذا الـ Instance، يرجى تجديده أو إدخال Instance جديد ⚠️"),
+                    bgcolor=ft.Colors.ORANGE_800,
+                    duration=6000,
+                )
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text(f"رد السيرفر: {resp_text}"), bgcolor=ft.Colors.RED)
+        except Exception:
+            page.open(ft.SnackBar(ft.Text("فشل الاتصال بالخادم، تأكد من الإنترنت."), bgcolor=ft.Colors.RED))
+        _sb.open = True
+        page.overlay.append(_sb) if _sb not in page.overlay else None
+        page.update()
+
+    def clear_msg_fields(e):
+        member_dropdown.value = None
+        single_phone.value = ""
+        msg_input.value = ""
+        page.update()
+
+    return ft.Container(
+        content=ft.Column(
+            [
+                ft.Text("إعدادات المزامنة والرسائل القصيرة ☁️", size=20, weight="bold", color=ft.Colors.AMBER),
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column(
+                            [
+                                sync_switch,
+                                api_url,
+                                ultra_instance,
+                                ultra_token,
+                                ft.Divider(height=10),
+                                ft.Text("إعدادات وضع الطوارئ (SMS بدون إنترنت) 📴", weight="bold", color=ft.Colors.AMBER_200),
+                                sms_mode_dropdown,
+                                sms_gateway_ip,
+                                sms_com_port,
+                                ft.Row(
+                                    [
+                                        ft.Button("حفظ وتفعيل الإعدادات", on_click=save_settings, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, expand=True),
+                                        ft.Button("فحص Firebase 🔌", on_click=test_firebase_connection, bgcolor=ft.Colors.TEAL_700, color=ft.Colors.WHITE),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        padding=20,
+                    )
+                ),
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text("إرسال رسائل WhatsApp فردية 💬", weight="bold"),
+                                ft.Row(
+                                    [
+                                        member_dropdown,
+                                        ft.IconButton(icon=ft.Icons.REFRESH, tooltip="تحديث قائمة الأعضاء", on_click=refresh_members, icon_color=ft.Colors.AMBER),
+                                    ]
+                                ),
+                                single_phone,
+                                msg_input,
+                                ft.Row(
+                                    [
+                                        ft.Button("إرسال الواتساب الآن", on_click=send_whatsapp_msg, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, expand=True),
+                                        ft.Button("تفريغ الحقول", on_click=clear_msg_fields, bgcolor=ft.Colors.GREY_700, color=ft.Colors.WHITE),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        padding=20,
+                    )
+                ),
+            ],
+            scroll="always",
+        ),
+        padding=10,
+        expand=True,
+    )

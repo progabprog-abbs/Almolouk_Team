@@ -1,0 +1,39 @@
+[project]
+name = "almolouk-team"
+version = "2.0.0"
+description = "تطبيق إدارة فريق الملوك لكرة القدم"
+dependencies = [
+    "flet-notifications",
+    "flet==1.1.2",
+    "flet-audio",
+    "flet-audio-recorder",
+    "requests"
+]
+
+[tool.flet]
+org = "com.almolouk.team"
+product = "فريق الملوك"
+copyright = "Devloper Mahammd Almoola 2026"
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.ACCESS_NETWORK_STATE" = true
+"android.permission.RECORD_AUDIO" = true
+"android.permission.MODIFY_AUDIO_SETTINGS" = true
+"android.permission.READ_EXTERNAL_STORAGE" = true
+"android.permission.WRITE_EXTERNAL_STORAGE" = true
+"android.permission.READ_MEDIA_AUDIO" = true
+"android.permission.POST_NOTIFICATIONS" = true
+"android.permission.VIBRATE" = true
+"android.permission.WAKE_LOCK" = true
+"android.permission.RECEIVE_BOOT_COMPLETED" = true
+
+[tool.flet.ios]
+team_id = "YOUR_APPLE_TEAM_ID"
+
+[tool.flet.ios.info]
+CFBundleDisplayName = "فريق الملوك"
+CFBundleName = "Almolouk Team"
+NSMicrophoneUsageDescription = "يحتاج التطبيق إلى الميكروفون لتسجيل وإرسال الرسائل الصوتية في غرفة دردشة الفريق."
+NSAppTransportSecurity = { NSAllowsArbitraryLoads = true }
+UIBackgroundModes = ["fetch", "remote-notification"]

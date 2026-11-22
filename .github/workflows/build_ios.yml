@@ -1,0 +1,38 @@
+name: Build Almolouk iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flet==1.1.2 flet-audio flet-audio-recorder flet-notifications requests
+
+      - name: Build iOS IPA Package
+        run: |
+          flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.0"
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Almolouk_Team_iOS_IPA
+          path: build/ipa/*.ipa
