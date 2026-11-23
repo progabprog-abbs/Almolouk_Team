@@ -17,25 +17,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Flutter SDK
+      - name: Setup Flutter SDK 3.47.9
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.38.0'
+          flutter-version: '3.47.9'
 
-      - name: Verify Flutter & Install Dependencies
+      - name: Install Flet & Dependencies
         run: |
           flutter --version
           python -m pip install --upgrade pip
           pip install flet==1.1.2 flet-audio flet-audio-recorder flet-notifications requests
-          flet doctor
 
       - name: Build Unsigned iOS App & Package IPA
         run: |
-          flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.1" -- --no-codesign || true
-          if [ ! -f build/ipa/*.ipa ]; then
-            FLUTTER_DIR=$(find build -maxdepth 3 -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
-            echo "Found Flutter project at: $FLUTTER_DIR"
+          yes | flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.1" --yes -- --no-codesign || true
+          FLUTTER_DIR=$(find build -maxdepth 3 -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
+          echo "Found Flutter project at: $FLUTTER_DIR"
+          if [ -n "$FLUTTER_DIR" ] && [ ! -f build/ipa/*.ipa ]; then
             cd "$FLUTTER_DIR"
             flutter build ios --release --no-codesign
             mkdir -p "$GITHUB_WORKSPACE/build/ipa/Payload"
@@ -43,6 +42,7 @@ jobs:
             cd "$GITHUB_WORKSPACE/build/ipa"
             zip -r Almolouk_Team.ipa Payload
           fi
+          ls -lh "$GITHUB_WORKSPACE/build/ipa/"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
