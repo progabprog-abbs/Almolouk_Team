@@ -34,18 +34,18 @@ jobs:
           yes | flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.1" --yes -- --no-codesign || true
           FLUTTER_DIR=$(find build -maxdepth 3 -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
           echo "Found Flutter project at: $FLUTTER_DIR"
-          if [ -n "$FLUTTER_DIR" ] && [ ! -f build/ipa/*.ipa ]; then
-            cd "$FLUTTER_DIR"
-            flutter build ios --release --no-codesign
-            mkdir -p "$GITHUB_WORKSPACE/build/ipa/Payload"
-            cp -r build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/build/ipa/Payload/"
-            cd "$GITHUB_WORKSPACE/build/ipa"
-            zip -r Almolouk_Team.ipa Payload
-          fi
-          ls -lh "$GITHUB_WORKSPACE/build/ipa/"
+          cd "$FLUTTER_DIR"
+          flutter build ios --release --no-codesign
+          APP_BUNDLE=$(find build/ios/iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          echo "Packaging app bundle: $APP_BUNDLE"
+          mkdir -p "$GITHUB_WORKSPACE/build/ipa/Payload"
+          cp -R "$APP_BUNDLE" "$GITHUB_WORKSPACE/build/ipa/Payload/"
+          cd "$GITHUB_WORKSPACE/build/ipa"
+          zip -r Almolouk_Team.ipa Payload
+          ls -lh "$GITHUB_WORKSPACE/build/ipa/Almolouk_Team.ipa"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Almolouk_Team_iOS_IPA
-          path: build/ipa/*.ipa
+          path: build/ipa/Almolouk_Team.ipa
