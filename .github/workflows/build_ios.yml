@@ -21,6 +21,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Install Dependencies
         run: |
@@ -29,13 +30,15 @@ jobs:
 
       - name: Build Unsigned iOS App & Package IPA
         run: |
-          flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.1" --no-codesign || true
+          flet build ipa --project "Almolouk_Team" --product "فريق الملوك" --org "com.almolouk.team" --build-version "2.4.1" -- --no-codesign || true
           if [ ! -f build/ipa/*.ipa ]; then
-            cd build/flutter
+            FLUTTER_DIR=$(find build -maxdepth 3 -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
+            echo "Found Flutter project at: $FLUTTER_DIR"
+            cd "$FLUTTER_DIR"
             flutter build ios --release --no-codesign
-            mkdir -p ../ipa/Payload
-            cp -r build/ios/iphoneos/Runner.app ../ipa/Payload/
-            cd ../ipa
+            mkdir -p "$GITHUB_WORKSPACE/build/ipa/Payload"
+            cp -r build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/build/ipa/Payload/"
+            cd "$GITHUB_WORKSPACE/build/ipa"
             zip -r Almolouk_Team.ipa Payload
           fi
 
