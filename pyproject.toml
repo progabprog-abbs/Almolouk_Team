@@ -29,8 +29,6 @@ copyright = "Devloper Mahammd Almoola 2026"
 "android.permission.RECEIVE_BOOT_COMPLETED" = true
 
 [tool.flet.ios]
-team_id = "YOUR_APPLE_TEAM_ID"
-
 [tool.flet.ios.info]
 CFBundleDisplayName = "فريق الملوك"
 CFBundleName = "Almolouk Team"
