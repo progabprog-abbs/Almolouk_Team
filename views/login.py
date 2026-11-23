@@ -293,6 +293,162 @@ def LoginView(page: ft.Page, db):
         ),
     )
 
+
+    # ==========================================================
+    # منظومة مشاركة وتنصيب التطبيق للأندرويد والآيفون عبر QR Code
+    # ==========================================================
+    DEFAULT_ANDROID_URL = "https://github.com/progabprog-abbs/Almolouk_Team/releases/latest/download/Almolouk_Team.apk"
+    DEFAULT_IOS_URL = "https://progabprog-abbs.github.io/Almolouk_Team/"
+
+    def _get_saved_url(key, default_val):
+        val = db.get_setting(key)
+        return val.strip() if val and val.strip() else default_val
+
+    def _build_qr_image_url(target_url):
+        import urllib.parse
+        encoded = urllib.parse.quote(target_url.strip(), safe="")
+        return f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data={encoded}"
+
+    selected_platform = {"type": "android"}
+
+    qr_platform_title = ft.Text("📱 رابط تنصيب نسخة الأندرويد (APK)", size=14, weight="bold", color=ft.Colors.GREEN_300)
+    qr_url_field = ft.TextField(
+        label="رابط التحميل المباشر",
+        value=_get_saved_url("app_android_url", DEFAULT_ANDROID_URL),
+        text_align="left",
+        text_size=12,
+        border_color=ft.Colors.AMBER_700,
+    )
+    qr_image = ft.Image(
+        src=_build_qr_image_url(qr_url_field.value),
+        width=210,
+        height=210,
+        fit=ft.BoxFit.CONTAIN,
+        border_radius=12,
+    )
+
+    def _refresh_qr_display(e=None):
+        url_val = (qr_url_field.value or "").strip()
+        if not url_val:
+            return
+        qr_image.src = _build_qr_image_url(url_val)
+        if selected_platform["type"] == "android":
+            db.set_setting("app_android_url", url_val)
+        else:
+            db.set_setting("app_ios_url", url_val)
+        page.update()
+
+    def _switch_qr_platform(plat):
+        selected_platform["type"] = plat
+        if plat == "android":
+            qr_platform_title.value = "📱 رابط تنصيب نسخة الأندرويد (APK)"
+            qr_platform_title.color = ft.Colors.GREEN_300
+            qr_url_field.value = _get_saved_url("app_android_url", DEFAULT_ANDROID_URL)
+        else:
+            qr_platform_title.value = "🍎 رابط تنصيب نسخة الآيفون (iOS / IPA)"
+            qr_platform_title.color = ft.Colors.LIGHT_BLUE_300
+            qr_url_field.value = _get_saved_url("app_ios_url", DEFAULT_IOS_URL)
+        qr_image.src = _build_qr_image_url(qr_url_field.value)
+        page.update()
+
+    def _copy_qr_link(e):
+        try:
+            page.set_clipboard(qr_url_field.value)
+            show_msg("تم نسخ رابط التنصيب إلى الحافظة 📋✅", ft.Colors.GREEN_700)
+        except Exception:
+            show_msg("تعذر النسخ التلقائي، انسخ الرابط من المربع أعلاه", ft.Colors.AMBER_800)
+
+    def _close_qr_dialog(e=None):
+        try:
+            page.close(qr_share_dialog)
+        except Exception:
+            qr_share_dialog.open = False
+            page.update()
+
+    qr_share_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.Icons.QR_CODE_2, color=ft.Colors.AMBER, size=26),
+                ft.Text("تنصيب التطبيق عبر QR Code", weight="bold", size=17, color=ft.Colors.AMBER),
+            ],
+            spacing=8,
+        ),
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Button(
+                            content=ft.Text("أندرويد 🤖", weight="bold"),
+                            on_click=lambda e: _switch_qr_platform("android"),
+                            bgcolor=ft.Colors.GREEN_800,
+                            color=ft.Colors.WHITE,
+                        ),
+                        ft.Button(
+                            content=ft.Text("آيفون 🍎", weight="bold"),
+                            on_click=lambda e: _switch_qr_platform("ios"),
+                            bgcolor=ft.Colors.BLUE_800,
+                            color=ft.Colors.WHITE,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=12,
+                ),
+                qr_platform_title,
+                ft.Container(
+                    content=qr_image,
+                    bgcolor=ft.Colors.WHITE,
+                    padding=8,
+                    border_radius=14,
+                    alignment=ft.Alignment.CENTER,
+                ),
+                ft.Text("وجّه كاميرا الهاتف نحو الرمز لفتح صفحة التنصيب مباشرة", size=12, color=ft.Colors.GREY_300),
+                qr_url_field,
+                ft.Row(
+                    [
+                        ft.TextButton(content=ft.Text("تحديث الرمز وحفظ الرابط 💾"), on_click=_refresh_qr_display),
+                        ft.TextButton(content=ft.Text("نسخ الرابط 📋"), on_click=_copy_qr_link),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            ],
+            tight=True,
+            spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        actions=[
+            ft.Button(
+                content=ft.Text("إغلاق", weight="bold"),
+                on_click=_close_qr_dialog,
+                bgcolor=ft.Colors.AMBER_800,
+                color=ft.Colors.WHITE,
+            ),
+        ],
+    )
+
+    def open_qr_share_dialog(e):
+        _switch_qr_platform(selected_platform["type"])
+        page.open(qr_share_dialog)
+
+    qr_share_btn = ft.Button(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.QR_CODE_2, color=ft.Colors.AMBER, size=20),
+                ft.Text("تنصيب التطبيق (QR Code) 📲", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=6,
+        ),
+        on_click=open_qr_share_dialog,
+        width=300,
+        height=42,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.with_opacity(0.88, "#0F172A"),
+            side=ft.BorderSide(1.5, ft.Colors.AMBER_600),
+            shape=ft.RoundedRectangleBorder(radius=12),
+        ),
+    )
+
     license_bar = ft.Container(
         content=ft.Column(
             [
@@ -329,7 +485,7 @@ def LoginView(page: ft.Page, db):
         content=ft.Column(
             [
                 ft.Text("🏆 فريق الملوك لكرة القدم 2003 🏆", size=22, weight="bold", color=ft.Colors.AMBER),
-                ft.Text("تسجيل الدخول للنظام", size=18, color=ft.Colors.WHITE, weight="bold"),
+                ft.Text("تسجيل الدخول للنظام", size=18, color=ft.Colors.BLACK_54, weight="bold"),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=4,
@@ -352,6 +508,7 @@ def LoginView(page: ft.Page, db):
                 ),
                 error_banner,
                 ft.Row([login_btn, exit_btn], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+                qr_share_btn,
                 ft.Container(expand=True),
                 license_bar,
             ],
