@@ -17,16 +17,18 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Flutter
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
+          flutter-version: '3.38.0'
 
-      - name: Install Dependencies
+      - name: Verify Flutter & Install Dependencies
         run: |
+          flutter --version
           python -m pip install --upgrade pip
           pip install flet==1.1.2 flet-audio flet-audio-recorder flet-notifications requests
+          flet doctor
 
       - name: Build Unsigned iOS App & Package IPA
         run: |
