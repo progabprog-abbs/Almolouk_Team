@@ -16,6 +16,7 @@ product = "فريق الملوك"
 copyright = "Devloper Mahammd Almoola 2026"
 
 [tool.flet.android.permission]
+"android.permission.CAMERA" = true
 "android.permission.INTERNET" = true
 "android.permission.ACCESS_NETWORK_STATE" = true
 "android.permission.RECORD_AUDIO" = true
