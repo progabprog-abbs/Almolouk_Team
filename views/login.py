@@ -94,6 +94,17 @@ def LoginView(page: ft.Page, db):
             ft.dropdown.Option("3650", "10 سنوات (تفعيل دائم)"),
         ],
     )
+    share_quota_dropdown = ft.Dropdown(
+        label="حصة انتشار التطبيق (مرات المسح/النسخ)",
+        value="25",
+        options=[
+            ft.dropdown.Option("5", "5 مشاركات (محدود)"),
+            ft.dropdown.Option("15", "15 مشاركة (فريق مصغر)"),
+            ft.dropdown.Option("30", "30 مشاركة (فريق كامل)"),
+            ft.dropdown.Option("60", "60 مشاركة (موسّع)"),
+            ft.dropdown.Option("9999", "غير محدود (مفتوح دائماً)"),
+        ],
+    )
     license_status_badge = ft.Text(
         f"🛡️ {license_msg}",
         size=12,
@@ -118,6 +129,8 @@ def LoginView(page: ft.Page, db):
         now = datetime.now()
         new_expiry = now + timedelta(days=added_days)
         _save_lic_persistent(new_expiry.strftime("%Y-%m-%d %H:%M:%S"), now.strftime("%Y-%m-%d %H:%M:%S"))
+        new_quota = int(share_quota_dropdown.value or "25")
+        _save_share_quota(0, new_quota)
 
         is_valid_license, days_remaining, license_msg = check_license_status()
         license_status_badge.value = f"🛡️ {license_msg}"
@@ -138,6 +151,7 @@ def LoginView(page: ft.Page, db):
                 ft.Text("نافذة خاصة بالمطور (Mahammd Almoola) لتمديد صلاحية النسخة وحفظها.", size=13, color=ft.Colors.GREY_300),
                 dev_key_input,
                 extend_days_dropdown,
+                share_quota_dropdown,
             ],
             tight=True,
             spacing=12,
@@ -295,23 +309,68 @@ def LoginView(page: ft.Page, db):
 
 
     # ==========================================================
-    # منظومة مشاركة وتنصيب التطبيق للأندرويد والآيفون عبر QR Code
+    # منظومة الترخيص وحصة انتشار التطبيق (QR + نسخ الروابط) بصلاحية المطور
     # ==========================================================
     DEFAULT_ANDROID_URL = "https://github.com/progabprog-abbs/Almolouk_Team/releases/latest/download/Almolouk_Team.apk"
     DEFAULT_IOS_URL = "https://progabprog-abbs.github.io/Almolouk_Team/"
+    quota_file = os.path.join(storage_dir, "almolouk_share_quota.dat")
+
+    def _save_share_quota(used_cnt, max_cnt):
+        raw = f"{int(used_cnt)}:{int(max_cnt)}"
+        enc = db.encrypt_text(raw)
+        db.set_setting("app_share_quota", enc)
+        try:
+            with open(quota_file, "w", encoding="utf-8") as qf:
+                qf.write(enc)
+        except Exception:
+            pass
+
+    def _load_share_quota():
+        enc = db.get_setting("app_share_quota")
+        if os.path.exists(quota_file):
+            try:
+                file_enc = open(quota_file, "r", encoding="utf-8").read().strip()
+                if file_enc:
+                    enc = file_enc
+                    db.set_setting("app_share_quota", enc)
+            except Exception:
+                pass
+        if not enc:
+            _save_share_quota(0, 10)  # رصيد افتراضي 10 مشاركات للمطور
+            return 0, 10
+        try:
+            dec = db.decrypt_text(enc)
+            u_str, m_str = dec.split(":")
+            return int(u_str), int(m_str)
+        except Exception:
+            return 0, 10
 
     def _get_saved_url(key, default_val):
         val = db.get_setting(key)
         return val.strip() if val and val.strip() else default_val
 
     def _build_qr_image_url(target_url):
-        import urllib.parse
         encoded = urllib.parse.quote(target_url.strip(), safe="")
-        return f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data={encoded}"
+        return f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data={encoded}"
 
     selected_platform = {"type": "android"}
 
-    qr_platform_title = ft.Text("📱 رابط تنصيب نسخة الأندرويد (APK)", size=14, weight="bold", color=ft.Colors.GREEN_300)
+    qr_quota_badge = ft.Text("", size=12, weight="bold", color=ft.Colors.AMBER_300, text_align=ft.TextAlign.CENTER)
+    qr_feedback_banner = ft.Container(
+        content=ft.Text("", size=12, weight="bold", color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
+        bgcolor=ft.Colors.GREEN_700,
+        border_radius=8,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+        visible=False,
+    )
+
+    def _set_qr_feedback(msg, bg=ft.Colors.GREEN_700):
+        qr_feedback_banner.content.value = msg
+        qr_feedback_banner.bgcolor = bg
+        qr_feedback_banner.visible = True
+        page.update()
+
+    qr_platform_title = ft.Text("📱 رابط تنصيب نسخة الأندرويد (APK)", size=13, weight="bold", color=ft.Colors.GREEN_300, text_align=ft.TextAlign.CENTER)
     qr_url_field = ft.TextField(
         label="رابط التحميل المباشر",
         value=_get_saved_url("app_android_url", DEFAULT_ANDROID_URL),
@@ -321,25 +380,75 @@ def LoginView(page: ft.Page, db):
     )
     qr_image = ft.Image(
         src=_build_qr_image_url(qr_url_field.value),
-        width=210,
-        height=210,
+        width=185,
+        height=185,
         fit=ft.BoxFit.CONTAIN,
         border_radius=12,
     )
+    qr_locked_overlay = ft.Container(
+        content=ft.Column(
+            [
+                ft.Icon(ft.Icons.LOCK_OUTLINE, color=ft.Colors.RED_400, size=44),
+                ft.Text("انتهت حصة الانتشار والمشاركة المسموحة!", size=13, weight="bold", color=ft.Colors.RED_300, text_align=ft.TextAlign.CENTER),
+                ft.Text("يرجى التجديد من نافذة صلاحية المطور 🔑", size=11, color=ft.Colors.GREY_300, text_align=ft.TextAlign.CENTER),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=6,
+        ),
+        width=195,
+        height=195,
+        bgcolor="#1E293B",
+        border_radius=12,
+        visible=False,
+    )
+
+    def _update_quota_ui():
+        used_c, max_c = _load_share_quota()
+        if max_c >= 9999:
+            rem_txt = "غير محدود ♾️"
+            has_quota = True
+        else:
+            rem = max(0, max_c - used_c)
+            rem_txt = f"{rem} من أصل {max_c}"
+            has_quota = rem > 0
+        qr_quota_badge.value = f"🛡️ رصيد النشر والمشاركة المتبقي: {rem_txt}"
+        qr_quota_badge.color = ft.Colors.AMBER_300 if has_quota else ft.Colors.RED_300
+        qr_image.visible = has_quota
+        qr_locked_overlay.visible = not has_quota
+        copy_link_btn.disabled = not has_quota
+        save_link_btn.disabled = not has_quota
+        return has_quota
+
+    def _consume_one_share():
+        used_c, max_c = _load_share_quota()
+        if max_c >= 9999:
+            return True
+        if used_c >= max_c:
+            _update_quota_ui()
+            return False
+        _save_share_quota(used_c + 1, max_c)
+        _update_quota_ui()
+        return True
 
     def _refresh_qr_display(e=None):
+        if not _update_quota_ui():
+            _set_qr_feedback("⛔ نفد رصيد المشاركة! جدّد الصلاحية من مفتاح المطور.", ft.Colors.RED_800)
+            return
         url_val = (qr_url_field.value or "").strip()
         if not url_val:
+            _set_qr_feedback("⚠️ يرجى كتابة رابط صحيح أولاً!", ft.Colors.AMBER_800)
             return
         qr_image.src = _build_qr_image_url(url_val)
         if selected_platform["type"] == "android":
             db.set_setting("app_android_url", url_val)
         else:
             db.set_setting("app_ios_url", url_val)
-        page.update()
+        _set_qr_feedback("✅ تم تحديث الرمز وحفظ الرابط بنجاح!", ft.Colors.GREEN_700)
 
     def _switch_qr_platform(plat):
         selected_platform["type"] = plat
+        qr_feedback_banner.visible = False
         if plat == "android":
             qr_platform_title.value = "📱 رابط تنصيب نسخة الأندرويد (APK)"
             qr_platform_title.color = ft.Colors.GREEN_300
@@ -349,14 +458,31 @@ def LoginView(page: ft.Page, db):
             qr_platform_title.color = ft.Colors.LIGHT_BLUE_300
             qr_url_field.value = _get_saved_url("app_ios_url", DEFAULT_IOS_URL)
         qr_image.src = _build_qr_image_url(qr_url_field.value)
+        _update_quota_ui()
         page.update()
 
     def _copy_qr_link(e):
+        if not _consume_one_share():
+            _set_qr_feedback("⛔ انتهت حصة النسخ المسموحة! تواصل مع المطور.", ft.Colors.RED_800)
+            return
+        link_txt = (qr_url_field.value or "").strip()
+        copied = False
         try:
-            page.set_clipboard(qr_url_field.value)
-            show_msg("تم نسخ رابط التنصيب إلى الحافظة 📋✅", ft.Colors.GREEN_700)
+            if hasattr(page, "clipboard") and page.clipboard:
+                page.clipboard.set(link_txt)
+                copied = True
         except Exception:
-            show_msg("تعذر النسخ التلقائي، انسخ الرابط من المربع أعلاه", ft.Colors.AMBER_800)
+            pass
+        if not copied:
+            try:
+                page.set_clipboard(link_txt)
+                copied = True
+            except Exception:
+                pass
+        if copied:
+            _set_qr_feedback("✅ تم نسخ الرابط إلى الحافظة بنجاح!", ft.Colors.GREEN_700)
+        else:
+            _set_qr_feedback("ℹ️ تم تفعيل الرابط — انسخه يدوياً من المربع أعلاه.", ft.Colors.BLUE_700)
 
     def _close_qr_dialog(e=None):
         try:
@@ -365,69 +491,91 @@ def LoginView(page: ft.Page, db):
             qr_share_dialog.open = False
             page.update()
 
+    save_link_btn = ft.Button(
+        content=ft.Text("حفظ وتحديث 💾", size=12, weight="bold"),
+        on_click=_refresh_qr_display,
+        bgcolor=ft.Colors.TEAL_700,
+        color=ft.Colors.WHITE,
+        expand=True,
+        height=38,
+    )
+    copy_link_btn = ft.Button(
+        content=ft.Text("نسخ الرابط 📋", size=12, weight="bold"),
+        on_click=_copy_qr_link,
+        bgcolor=ft.Colors.AMBER_800,
+        color=ft.Colors.WHITE,
+        expand=True,
+        height=38,
+    )
+
     qr_share_dialog = ft.AlertDialog(
         modal=True,
         title=ft.Row(
             [
-                ft.Icon(ft.Icons.QR_CODE_2, color=ft.Colors.AMBER, size=26),
-                ft.Text("تنصيب التطبيق عبر QR Code", weight="bold", size=17, color=ft.Colors.AMBER),
+                ft.Icon(ft.Icons.QR_CODE_2, color=ft.Colors.AMBER, size=22),
+                ft.Text("تنصيب التطبيق (QR Code)", weight="bold", size=15, color=ft.Colors.AMBER),
             ],
-            spacing=8,
+            spacing=6,
+            alignment=ft.MainAxisAlignment.CENTER,
         ),
-        content=ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Button(
-                            content=ft.Text("أندرويد 🤖", weight="bold"),
-                            on_click=lambda e: _switch_qr_platform("android"),
-                            bgcolor=ft.Colors.GREEN_800,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Button(
-                            content=ft.Text("آيفون 🍎", weight="bold"),
-                            on_click=lambda e: _switch_qr_platform("ios"),
-                            bgcolor=ft.Colors.BLUE_800,
-                            color=ft.Colors.WHITE,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=12,
-                ),
-                qr_platform_title,
-                ft.Container(
-                    content=qr_image,
-                    bgcolor=ft.Colors.WHITE,
-                    padding=8,
-                    border_radius=14,
-                    alignment=ft.Alignment.CENTER,
-                ),
-                ft.Text("وجّه كاميرا الهاتف نحو الرمز لفتح صفحة التنصيب مباشرة", size=12, color=ft.Colors.GREY_300),
-                qr_url_field,
-                ft.Row(
-                    [
-                        ft.TextButton(content=ft.Text("تحديث الرمز وحفظ الرابط 💾"), on_click=_refresh_qr_display),
-                        ft.TextButton(content=ft.Text("نسخ الرابط 📋"), on_click=_copy_qr_link),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-            ],
-            tight=True,
-            spacing=10,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        content=ft.Container(
+            width=295,
+            content=ft.Column(
+                [
+                    qr_quota_badge,
+                    ft.Row(
+                        [
+                            ft.Button(
+                                content=ft.Text("أندرويد 🤖", size=13, weight="bold"),
+                                on_click=lambda e: _switch_qr_platform("android"),
+                                bgcolor=ft.Colors.GREEN_800,
+                                color=ft.Colors.WHITE,
+                                expand=True,
+                            ),
+                            ft.Button(
+                                content=ft.Text("آيفون 🍎", size=13, weight="bold"),
+                                on_click=lambda e: _switch_qr_platform("ios"),
+                                bgcolor=ft.Colors.BLUE_800,
+                                color=ft.Colors.WHITE,
+                                expand=True,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                    qr_platform_title,
+                    ft.Container(
+                        content=ft.Stack([qr_image, qr_locked_overlay]),
+                        bgcolor=ft.Colors.WHITE,
+                        padding=6,
+                        border_radius=14,
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                    qr_feedback_banner,
+                    qr_url_field,
+                    ft.Row(
+                        [save_link_btn, copy_link_btn],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                ],
+                tight=True,
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         ),
         actions=[
-            ft.Button(
-                content=ft.Text("إغلاق", weight="bold"),
+            ft.TextButton(
+                content=ft.Text("إغلاق ✖️", weight="bold", color=ft.Colors.AMBER),
                 on_click=_close_qr_dialog,
-                bgcolor=ft.Colors.AMBER_800,
-                color=ft.Colors.WHITE,
             ),
         ],
     )
 
     def open_qr_share_dialog(e):
         _switch_qr_platform(selected_platform["type"])
+        if _update_quota_ui():
+            _consume_one_share()
         page.open(qr_share_dialog)
 
     qr_share_btn = ft.Button(
