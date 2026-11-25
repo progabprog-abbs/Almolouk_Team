@@ -138,6 +138,23 @@ def main(page: ft.Page):
         from android_notifier import AndroidSystemNotifier
         sys_notifier = AndroidSystemNotifier(page, db)
         sys_notifier.start_background_listener()
+        try:
+            if hasattr(ft, "Wakelock"):
+                wl = ft.Wakelock()
+                if hasattr(page, "services"):
+                    page.services.append(wl)
+                if hasattr(wl, "enable"):
+                    res_wl = wl.enable()
+                    import inspect as _insp
+                    if _insp.isawaitable(res_wl):
+                        async def _en_wl(c=res_wl):
+                            try:
+                                await c
+                            except Exception:
+                                pass
+                        page.run_task(_en_wl)
+        except Exception:
+            pass
     except Exception:
         show_fatal_error("تحميل الوحدات وقاعدة البيانات", traceback.format_exc())
         return

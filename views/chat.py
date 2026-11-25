@@ -1,4 +1,5 @@
 import os
+import io
 import sys
 import time
 import base64
@@ -26,7 +27,11 @@ def ChatView(db, user, page):
     db.set_setting("last_logged_user", str(user))
 
     def notify(msg, color=ft.Colors.GREEN_700):
-        page.open(ft.SnackBar(content=ft.Text(msg, color=ft.Colors.WHITE, weight="bold"), bgcolor=color, duration=3200))
+        try:
+            page.open(ft.SnackBar(content=ft.Text(msg, color=ft.Colors.WHITE, weight="bold"), bgcolor=color, duration=3200))
+            page.update()
+        except Exception:
+            pass
 
     chat_list = ft.ListView(expand=True, spacing=10, auto_scroll=True, padding=10)
     msg_input = ft.TextField(
@@ -39,7 +44,7 @@ def ChatView(db, user, page):
     state = {"recording": False, "record_path": None, "active_audio": None, "alive": True}
 
     # ==========================================================
-    # 1. فتح روابط المكالمات الحقيقية عبر UrlLauncher المتوافق مع Flet 1.1.2
+    # 1. فتح غرفة المخابرة الصوتية/المرئية المباشرة (WebRTC بدون تطبيق خارجي)
     # ==========================================================
     url_launcher = None
     if hasattr(ft, "UrlLauncher"):
@@ -51,46 +56,45 @@ def ChatView(db, user, page):
             url_launcher = None
 
     def launch_call_room(call_url):
-        notify("جاري فتح غرفة الاتصال المباشر بالصوت والصورة... 📞", ft.Colors.GREEN_700)
-        launched = False
+        notify("جاري فتح غرفة المخابرة المباشرة بالصوت والصورة... 📞", ft.Colors.GREEN_700)
         if url_launcher is not None and hasattr(url_launcher, "launch_url"):
             try:
                 res = url_launcher.launch_url(call_url)
                 if inspect.isawaitable(res):
-                    async def _do_launch(coro=res):
+                    async def _run_launch(coro=res):
                         try:
                             await coro
                         except Exception:
                             pass
-                    page.run_task(_do_launch)
-                launched = True
+                    page.run_task(_run_launch)
+                return
             except Exception:
                 pass
-        if not launched and hasattr(page, "launch_url"):
+        if hasattr(page, "launch_url"):
             try:
                 res2 = page.launch_url(call_url)
                 if inspect.isawaitable(res2):
-                    async def _do_launch2(coro=res2):
+                    async def _run_launch2(coro=res2):
                         try:
                             await coro
                         except Exception:
                             pass
-                    page.run_task(_do_launch2)
-                launched = True
+                    page.run_task(_run_launch2)
+                return
             except Exception:
                 pass
-        if not launched:
-            try:
-                webbrowser.open(call_url)
-                launched = True
-            except Exception:
-                pass
-        if not launched:
-            notify("تعذر فتح المتصفح تلقائياً، انسخ الرابط من الدردشة ⚠️", ft.Colors.RED_700)
+        try:
+            webbrowser.open(call_url)
+        except Exception as ex:
+            notify(f"تعذر فتح غرفة الاتصال: {ex}", ft.Colors.RED_700)
 
-    # ==========================================================
-    # 2. منظومة المكالمات الذكية (جماعية + فردية خاصة بالصوت أو الفيديو)
-    # ==========================================================
+    def _build_webrtc_url(room_slug, is_video=True):
+        safe_label = urllib.parse.quote(str(user))
+        # VDO.Ninja يعمل مباشرة في متصفح الهاتف والحاسوب بالصوت والصورة دون طلب تثبيت أي تطبيق
+        if is_video:
+            return f"https://vdo.ninja/?room={room_slug}&label={safe_label}&autostart&webcam&mic"
+        return f"https://vdo.ninja/?room={room_slug}&label={safe_label}&autostart&novideo&mic"
+
     def _get_all_call_targets():
         targets = []
         try:
@@ -109,21 +113,10 @@ def ChatView(db, user, page):
             pass
         return targets
 
-    def _build_jitsi_url(room_slug, is_video=True):
-        safe_user = urllib.parse.quote(str(user))
-        vid_muted = "false" if is_video else "true"
-        return (
-            f"https://meet.jit.si/{room_slug}"
-            f"#config.prejoinPageEnabled=false"
-            f"&config.startWithAudioMuted=false"
-            f"&config.startWithVideoMuted={vid_muted}"
-            f"&userInfo.displayName={safe_user}"
-        )
-
     def _start_group_call(is_video):
         mode_code = "video" if is_video else "audio"
-        room_slug = f"Almolouk2003_Group_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        c_url = _build_jitsi_url(room_slug, is_video=is_video)
+        room_slug = f"AlmoloukTeam2003Grp{datetime.now().strftime('%H%M%S')}"
+        c_url = _build_webrtc_url(room_slug, is_video=is_video)
         payload = f"[GRP_CALL|{mode_code}|{c_url}]"
         db.add_chat_message(sender=user, msg_type="text", content=payload)
         render_local_messages()
@@ -139,8 +132,8 @@ def ChatView(db, user, page):
             notify("يرجى اختيار العضو أو المدير المطلوب الاتصال به أولاً ⚠️", ft.Colors.AMBER_800)
             return
         mode_code = "video" if is_video else "audio"
-        room_slug = f"Almolouk2003_Priv_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        c_url = _build_jitsi_url(room_slug, is_video=is_video)
+        room_slug = f"AlmoloukTeam2003Prv{datetime.now().strftime('%H%M%S')}"
+        c_url = _build_webrtc_url(room_slug, is_video=is_video)
         payload = f"[PRIV_CALL|{target_name}|{mode_code}|{c_url}]"
         db.add_chat_message(sender=user, msg_type="text", content=payload)
         render_local_messages()
@@ -172,7 +165,7 @@ def ChatView(db, user, page):
             title=ft.Row(
                 [
                     ft.Icon(ft.Icons.VIDEO_CALL, color=ft.Colors.GREEN_400, size=24),
-                    ft.Text("مركز المخابرة والاتصال المباشر", weight="bold", size=15, color=ft.Colors.AMBER),
+                    ft.Text("مركز المخابرة المباشرة", weight="bold", size=16, color=ft.Colors.AMBER),
                 ],
                 spacing=6,
             ),
@@ -180,7 +173,7 @@ def ChatView(db, user, page):
                 width=295,
                 content=ft.Column(
                     [
-                        ft.Text("1️⃣ مكالمة جماعية (دعوة عامة للفريق):", size=13, weight="bold", color=ft.Colors.TEAL_200),
+                        ft.Text("1️⃣ مكالمة جماعية (دعوة لكل الفريق):", size=13, weight="bold", color=ft.Colors.TEAL_200),
                         ft.Row(
                             [
                                 ft.Button(
@@ -234,42 +227,41 @@ def ChatView(db, user, page):
         page.open(call_dlg)
 
     # ==========================================================
-    # 3. جلب الصور وضغطها من الهاتف أو الحاسوب (يدعم bytes و path)
+    # 2. المعالجة الجذرية لاستيراد الصور من الهاتف والحاسوب (Flet 1.1.2)
     # ==========================================================
     def _compress_image_bytes(raw_bytes):
         if not raw_bytes:
             return None
         try:
-            import io
             from PIL import Image
             im = Image.open(io.BytesIO(raw_bytes))
             if im.mode in ("RGBA", "P", "LA"):
                 im = im.convert("RGB")
-            im.thumbnail((540, 540))
+            im.thumbnail((520, 520))
             buf = io.BytesIO()
-            im.save(buf, format="JPEG", quality=62)
+            im.save(buf, format="JPEG", quality=60)
             raw_bytes = buf.getvalue()
         except Exception:
-            if len(raw_bytes) > 750 * 1024:
+            if len(raw_bytes) > 850 * 1024:
                 return None
         return base64.b64encode(raw_bytes).decode("ascii")
 
-    def on_image_picked(e):
-        files = getattr(e, "files", None) or []
-        if not files:
+    def _process_selected_files(files_list):
+        if not files_list:
             return
-        f_obj = files[0]
+        f_obj = files_list[0]
         raw_data = getattr(f_obj, "bytes", None)
         f_path = getattr(f_obj, "path", None)
 
         if not raw_data and f_path and os.path.exists(f_path):
             try:
-                raw_data = open(f_path, "rb").read()
+                with open(f_path, "rb") as fp:
+                    raw_data = fp.read()
             except Exception:
                 raw_data = None
 
         if not raw_data:
-            notify("تعذر قراءة بيانات الصورة من الجهاز! حاول اختيار صورة أخرى ⚠️", ft.Colors.RED_700)
+            notify("تعذر قراءة الصورة من الهاتف! تأكد من اختيار صورة محلية ⚠️", ft.Colors.RED_700)
             return
 
         notify("جاري ضغط وإرسال الصورة المشفرة... 📷", ft.Colors.BLUE_700)
@@ -277,7 +269,7 @@ def ChatView(db, user, page):
         def _send_img_worker(data_bytes=raw_data):
             b64_str = _compress_image_bytes(data_bytes)
             if not b64_str:
-                notify("حجم الصورة كبير جداً! يرجى اختيار صورة أصغر ⚠️", ft.Colors.RED_700)
+                notify("حجم الصورة كبير جداً! اختر صورة أصغر ⚠️", ft.Colors.RED_700)
                 return
             payload = f"[IMG_B64]{b64_str}"
             db.add_chat_message(sender=user, msg_type="text", content=payload)
@@ -290,7 +282,7 @@ def ChatView(db, user, page):
     image_picker = None
     try:
         image_picker = ft.FilePicker()
-        image_picker.on_result = on_image_picked
+        image_picker.on_result = lambda e: _process_selected_files(getattr(e, "files", None) or [])
         if hasattr(page, "services") and image_picker not in page.services:
             page.services.append(image_picker)
         elif hasattr(page, "overlay") and image_picker not in page.overlay:
@@ -303,23 +295,24 @@ def ChatView(db, user, page):
             notify("منتقي الصور غير متاح على هذا الجهاز ⚠️", ft.Colors.ORANGE_800)
             return
         try:
-            res = image_picker.pick_files(
+            # في Flet 1.1.2 تُعيد pick_files قائمة الملفات مباشرة عند الانتظار (await)
+            picked = await image_picker.pick_files(
                 dialog_title="اختر صورة لإرسالها في الدردشة",
                 allow_multiple=False,
                 file_type=ft.FilePickerFileType.IMAGE,
                 with_data=True,
             )
-            if inspect.isawaitable(res):
-                await res
+            if picked:
+                _process_selected_files(picked)
         except TypeError:
             try:
-                res2 = image_picker.pick_files(
+                picked2 = await image_picker.pick_files(
                     dialog_title="اختر صورة لإرسالها في الدردشة",
                     allow_multiple=False,
                     file_type=ft.FilePickerFileType.IMAGE,
                 )
-                if inspect.isawaitable(res2):
-                    await res2
+                if picked2:
+                    _process_selected_files(picked2)
             except Exception as ex2:
                 notify(f"تعذر فتح معرض الصور: {ex2}", ft.Colors.RED_700)
         except Exception as ex:
@@ -340,7 +333,7 @@ def ChatView(db, user, page):
         page.open(dlg)
 
     # ==========================================================
-    # 4. المسجل الصوتي ومشغل الرسائل الصوتية
+    # 3. المسجل الصوتي ومشغل الرسائل الصوتية
     # ==========================================================
     audio_recorder = None
     rec_err = ""
@@ -373,7 +366,7 @@ def ChatView(db, user, page):
             if hasattr(page, "services"):
                 if state["active_audio"] and state["active_audio"] in page.services:
                     try:
-                        self_rem = page.services.remove(state["active_audio"])
+                        page.services.remove(state["active_audio"])
                     except Exception:
                         pass
                 player = audio_cls(src=file_path, autoplay=True)
@@ -395,7 +388,6 @@ def ChatView(db, user, page):
         bubble_color = ft.Colors.BLUE_GREY_800 if is_me else ft.Colors.GREY_900
         align = ft.MainAxisAlignment.END if is_me else ft.MainAxisAlignment.START
 
-        # 1) مكالمة فردية خاصة [PRIV_CALL|target|mode|url] -> تظهر للطرفين فقط!
         if content.startswith("[PRIV_CALL|"):
             parts = content.split("|", 3)
             if len(parts) == 4:
@@ -421,7 +413,6 @@ def ChatView(db, user, page):
                     spacing=5,
                     tight=True,
                 )
-        # 2) مكالمة جماعية [GRP_CALL|mode|url]
         elif content.startswith("[GRP_CALL|"):
             parts = content.split("|", 2)
             c_mode = parts[1] if len(parts) >= 2 else "video"
