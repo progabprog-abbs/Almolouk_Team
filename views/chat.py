@@ -9,6 +9,10 @@ import webbrowser
 import threading
 from datetime import datetime
 import flet as ft
+try:
+    import flet_webview as ftwv
+except Exception:
+    ftwv = None
 
 try:
     import flet_audio as fta
@@ -56,6 +60,35 @@ def ChatView(db, user, page):
             url_launcher = None
 
     def launch_call_room(call_url):
+        wv_cls = getattr(ftwv, "WebView", None) if ftwv else getattr(ft, "WebView", None)
+        if wv_cls is not None:
+            try:
+                call_dlg = ft.AlertDialog(
+                    modal=True,
+                    bgcolor="#0B141A",
+                    inset_padding=ft.Padding.all(6),
+                    content_padding=0,
+                    title=ft.Row(
+                        [
+                            ft.Text("📞 مكالمة فريق الملوك المباشرة", size=14, weight="bold", color=ft.Colors.WHITE),
+                            ft.IconButton(
+                                icon=ft.Icons.CALL_END,
+                                icon_color=ft.Colors.WHITE,
+                                bgcolor=ft.Colors.RED_600,
+                                on_click=lambda e: (setattr(call_dlg, "open", False), page.update()),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    content=ft.Container(width=340, height=470, content=wv_cls(url=call_url, expand=True)),
+                )
+                call_dlg.open = True
+                if call_dlg not in page.overlay:
+                    page.overlay.append(call_dlg)
+                page.update()
+                return
+            except Exception:
+                pass
         notify("جاري فتح غرفة المخابرة المباشرة بالصوت والصورة... 📞", ft.Colors.GREEN_700)
         if url_launcher is not None and hasattr(url_launcher, "launch_url"):
             try:
@@ -322,12 +355,12 @@ def ChatView(db, user, page):
         dlg = ft.AlertDialog(
             modal=True,
             content=ft.Container(
-                content=ft.Image(src_base64=b64_data, fit=ft.BoxFit.CONTAIN, border_radius=12),
+                content=ft.Image(src=b64_data, fit=ft.BoxFit.CONTAIN, border_radius=12),
                 width=305,
                 height=360,
             ),
             actions=[
-                ft.TextButton(content=ft.Text("إغلاق ✖️", weight="bold"), on_click=lambda e: page.close(dlg)),
+                ft.TextButton(content=ft.Text("إغلاق ✖️", weight="bold"), on_click=lambda e: (setattr(dlg, 'open', False), page.update())),
             ],
         )
         page.open(dlg)
@@ -455,7 +488,7 @@ def ChatView(db, user, page):
                 content=ft.Column(
                     [
                         ft.Image(
-                            src_base64=b64_img,
+                            src=b64_img,
                             width=205,
                             height=180,
                             fit=ft.BoxFit.COVER,

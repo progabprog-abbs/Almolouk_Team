@@ -3,6 +3,7 @@ name = "almolouk-team"
 version = "2.0.0"
 description = "تطبيق إدارة فريق الملوك لكرة القدم"
 dependencies = [
+  "flet-webview",
     "flet-notifications",
     "flet==1.1.2",
     "flet-audio",
@@ -16,6 +17,10 @@ product = "فريق الملوك"
 copyright = "Devloper Mahammd Almoola 2026"
 
 [tool.flet.android.permission]
+"android.permission.FOREGROUND_SERVICE" = true
+"android.permission.FOREGROUND_SERVICE_DATA_SYNC" = true
+"android.permission.USE_FULL_SCREEN_INTENT" = true
+"android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" = true
 "android.permission.CAMERA" = true
 "android.permission.INTERNET" = true
 "android.permission.ACCESS_NETWORK_STATE" = true
