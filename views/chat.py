@@ -59,7 +59,7 @@ def ChatView(db, user, page):
         expand=True,
         filled=True,
         bgcolor="#1F2C34",
-        border=ft.OutlineInputBorder(border_radius=24, border_side=ft.BorderSide(1, "#2A3942")),
+        border=ft.OutlineInputBorder(border_radius=24, side=ft.BorderSide(1, "#2A3942")),
         content_padding=ft.Padding.symmetric(horizontal=16, vertical=10),
     )
 
