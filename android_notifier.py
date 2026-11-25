@@ -168,12 +168,22 @@ class AndroidSystemNotifier:
                             nid = str(latest[0])
                             if self.db.get_setting("last_seen_notif_id") != nid:
                                 self.db.set_setting("last_seen_notif_id", nid)
-                                self.show_system_notification(
-                                    title=latest[3] or latest[1] or "إشعار إداري جديد",
-                                    body=latest[2] or "",
-                                    notif_id=int(latest[0]) + 1000,
-                                    accent_color=ft.Colors.AMBER_900,
-                                )
+                                raw_b = latest[2] or ""
+                                clean_b = raw_b.split("]\n", 1)[1] if (raw_b.startswith("[DUR:") and "]\n" in raw_b) else raw_b
+                                allowed = True
+                                if clean_b.startswith("[TARGET:") and "]\n" in clean_b:
+                                    t_hdr, clean_b = clean_b.split("]\n", 1)
+                                    t_names = [x.strip() for x in t_hdr.replace("[TARGET:", "").split(",") if x.strip()]
+                                    cur_role = (self.page.session.get("role") or "").strip()
+                                    if t_names and cur_role != "admin" and cur_user not in t_names:
+                                        allowed = False
+                                if allowed:
+                                    self.show_system_notification(
+                                        title=latest[3] or latest[1] or "إشعار إداري جديد",
+                                        body=clean_b,
+                                        notif_id=int(latest[0]) + 1000,
+                                        accent_color=ft.Colors.AMBER_900,
+                                    )
 
                     # ب) فحص رسائل الدردشة والمكالمات الفردية والجماعية والصور
                     added_chat = self.db.pull_chat_from_cloud()

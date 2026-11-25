@@ -70,12 +70,21 @@ def ChatView(db, user, page):
                     content_padding=0,
                     title=ft.Row(
                         [
-                            ft.Text("📞 مكالمة فريق الملوك المباشرة", size=14, weight="bold", color=ft.Colors.WHITE),
-                            ft.IconButton(
-                                icon=ft.Icons.CALL_END,
-                                icon_color=ft.Colors.WHITE,
-                                bgcolor=ft.Colors.RED_600,
-                                on_click=lambda e: (setattr(call_dlg, "open", False), page.update()),
+                            ft.Text("📞 مكالمة مباشرة", size=13, weight="bold", color=ft.Colors.WHITE),
+                            ft.Row(
+                                [
+                                    ft.TextButton(
+                                        content=ft.Text("فتح بالمتصفح 🌐", size=11, weight="bold", color=ft.Colors.AMBER_300),
+                                        on_click=lambda e, u=call_url: _open_external_fallback(u),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.CALL_END,
+                                        icon_color=ft.Colors.WHITE,
+                                        bgcolor=ft.Colors.RED_600,
+                                        on_click=lambda e: (setattr(call_dlg, "open", False), page.update()),
+                                    ),
+                                ],
+                                spacing=2,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -378,10 +387,9 @@ def ChatView(db, user, page):
             if "audio_encoder" in sig.parameters and ftar and hasattr(ftar, "AudioEncoder"):
                 kwargs["audio_encoder"] = getattr(ftar.AudioEncoder, "WAV", None) or list(ftar.AudioEncoder)[0]
             audio_recorder = rec_cls(**kwargs)
-            if hasattr(page, "services") and audio_recorder not in page.services:
+            # إضافة AudioRecorder بأمان فقط إذا كان من فئة flet_audio_recorder المسجلة
+            if ftar is not None and hasattr(page, "services") and audio_recorder not in page.services:
                 page.services.append(audio_recorder)
-            elif hasattr(page, "overlay") and audio_recorder not in page.overlay:
-                page.overlay.append(audio_recorder)
         except Exception as ex:
             rec_err = str(ex)
             audio_recorder = None
