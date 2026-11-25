@@ -321,6 +321,49 @@ class DatabaseManager:
         return new_count
 
     # --- الدردشة النصية والصوتية ثنائية الاتجاه (Firebase <-> SQLite) ---
+    def delete_chat_message(self, msg_id: int, cloud_id: str = ""):
+        cur = self.conn.cursor()
+        if not cloud_id and msg_id:
+            cur.execute("SELECT cloud_id FROM chat_messages WHERE id = ?", (msg_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                cloud_id = str(row[0])
+        if msg_id:
+            cur.execute("DELETE FROM chat_messages WHERE id = ?", (msg_id,))
+        if cloud_id:
+            cur.execute("DELETE FROM chat_messages WHERE cloud_id = ?", (cloud_id,))
+        self.conn.commit()
+        if cloud_id:
+            try:
+                endpoint = f"{self._firebase_url()}/chat_messages/{cloud_id}.json"
+                req = urllib.request.Request(endpoint, method="DELETE")
+                urllib.request.urlopen(req, timeout=6)
+            except Exception:
+                pass
+
+    def cleanup_expired_chat_media(self, max_age_hours: int):
+        if max_age_hours <= 0:
+            return 0
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        cur = self.conn.cursor()
+        cur.execute("SELECT id, cloud_id, message, msg_type, created_at FROM chat_messages")
+        rows = cur.fetchall()
+        deleted = 0
+        for r_id, c_id, enc_msg, m_type, c_at in rows:
+            dec = self.decrypt_text(enc_msg or "")
+            is_media = (m_type == "audio") or dec.startswith("[IMG_B64]") or dec.startswith("[FILE_B64|") or dec.startswith("[GRP_CALL|") or dec.startswith("[PRIV_CALL|")
+            if not is_media:
+                continue
+            try:
+                dt = datetime.strptime(str(c_at)[:16], "%Y-%m-%d %H:%M")
+                if dt < cutoff:
+                    self.delete_chat_message(r_id, str(c_id or ""))
+                    deleted += 1
+            except Exception:
+                pass
+        return deleted
+
     def add_chat_message(self, sender="عضو", message="", content=None, audio_data="", audio_path=None, msg_type="text", cloud_id="", timestamp=None, **kwargs):
         final_text = content if content is not None else (message or "")
         final_audio = audio_path if audio_path is not None else (audio_data or "")
