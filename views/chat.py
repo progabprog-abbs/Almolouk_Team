@@ -59,6 +59,27 @@ def ChatView(db, user, page):
         except Exception:
             url_launcher = None
 
+    def _open_external_fallback(u):
+        try:
+            if url_launcher is not None and hasattr(url_launcher, "launch_url"):
+                res = url_launcher.launch_url(u)
+                import inspect as _ins
+                if _ins.isawaitable(res):
+                    async def _r(c=res):
+                        try:
+                            await c
+                        except Exception:
+                            pass
+                    page.run_task(_r)
+                return
+        except Exception:
+            pass
+        try:
+            import webbrowser as _wb
+            _wb.open(u)
+        except Exception:
+            pass
+
     def launch_call_room(call_url):
         wv_cls = getattr(ftwv, "WebView", None) if ftwv else getattr(ft, "WebView", None)
         if wv_cls is not None:

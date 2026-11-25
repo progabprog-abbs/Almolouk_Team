@@ -70,7 +70,7 @@ def NotificationsView(db, role, page):
     # منظومة توجيه الإشعارات: للكل أو لأعضاء محددين بقائمة اختيار
     # ==========================================================
     member_checks = {}
-    members_checklist_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=135)
+    members_checklist_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=95)
     selected_summary_txt = ft.Text("المستلمون: جميع أعضاء الفريق 📢", size=12, weight="bold", color=ft.Colors.GREEN_300)
 
     def _update_selected_summary(e=None):
@@ -166,8 +166,8 @@ def NotificationsView(db, role, page):
     content_input = ft.TextField(
         label="اكتب نص الإشعار...",
         multiline=True,
-        min_lines=2,
-        max_lines=4,
+        min_lines=1,
+        max_lines=2,
     )
 
     DURATION_LABELS = {"1": "يوم واحد", "3": "3 أيام", "7": "أسبوع", "30": "شهر", "0": "دائم"}
@@ -397,4 +397,4 @@ def NotificationsView(db, role, page):
 
     top_controls.append(notif_list)
     load_notifications(is_init=True)
-    return ft.Container(content=ft.Column(top_controls, expand=True), padding=10, expand=True)
+    return ft.Container(content=ft.Column(top_controls, expand=True, scroll=ft.ScrollMode.ADAPTIVE), padding=10, expand=True)
