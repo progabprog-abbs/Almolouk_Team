@@ -748,7 +748,7 @@ def ChatView(db, user, page):
 
     def auto_poll_chat():
         while state["alive"]:
-            time.sleep(2.5)
+            time.sleep(1.2)
             try:
                 if page.route != "/dashboard":
                     break

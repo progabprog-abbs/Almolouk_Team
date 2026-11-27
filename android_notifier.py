@@ -244,6 +244,6 @@ class AndroidSystemNotifier:
                                         )
                 except Exception:
                     pass
-                time.sleep(3)
+                time.sleep(1.2)
 
         threading.Thread(target=poll_loop, daemon=True).start()

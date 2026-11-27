@@ -137,6 +137,10 @@ class DatabaseManager:
         cur.execute("INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('sync_enabled', '1')")
         cur.execute("INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('api_url', ?)", (DEFAULT_FIREBASE_URL,))
         self.conn.commit()
+        try:
+            self.ensure_developer_and_clean_dummies()
+        except Exception:
+            pass
 
     def set_setting(self, key: str, value: str):
         cur = self.conn.cursor()
@@ -153,6 +157,79 @@ class DatabaseManager:
         return (self.get_setting("api_url") or DEFAULT_FIREBASE_URL).strip().rstrip("/")
 
     # --- السجلات والبيانات (الأعضاء والمخولين) + مزامنة سحابية ثنائية الاتجاه ---
+    # --- نظام المطور الرئيسي وصلاحيات المخولين الثانويين ---
+    DEV_NAME = "Abbas Almoola"
+    DEV_PHONE = "07707841925"
+
+    def is_developer(self, name: str = "", phone: str = "") -> bool:
+        n_clean = str(name or "").strip().lower()
+        p_clean = str(phone or "").strip()
+        return (n_clean == self.DEV_NAME.lower()) or (p_clean == self.DEV_PHONE)
+
+    def ensure_developer_and_clean_dummies(self):
+        cur = self.conn.cursor()
+        # حذف أي سجلات تجريبية قديمة ومنع عودتها
+        dummy_names = ("حسن العضو", "أحمد اللاعب", "لاعب تجريبي", "علي المخول", "مدير تجريبي")
+        for dn in dummy_names:
+            cur.execute("DELETE FROM members WHERE TRIM(name) = ?", (dn,))
+            cur.execute("DELETE FROM admins WHERE TRIM(name) = ?", (dn,))
+        # تثبيت حساب المطور الرئيسي كأول مخول مطلق
+        cur.execute("SELECT id FROM admins WHERE TRIM(phone) = ? OR LOWER(TRIM(name)) = ?", (self.DEV_PHONE, self.DEV_NAME.lower()))
+        row = cur.fetchone()
+        if not row:
+            cur.execute(
+                "INSERT INTO admins (name, phone, address, facebook) VALUES (?, ?, ?, ?)",
+                (self.DEV_NAME, self.DEV_PHONE, "المطور والمخول الرئيسي للنظام", ""),
+            )
+        else:
+            cur.execute("UPDATE admins SET name = ?, phone = ? WHERE id = ?", (self.DEV_NAME, self.DEV_PHONE, row[0]))
+        self.conn.commit()
+        self.set_setting("seed_done", "1")
+
+    def get_admin_permissions(self, admin_name: str, admin_phone: str = "") -> dict:
+        if self.is_developer(admin_name, admin_phone):
+            return {"data": True, "notif": True, "chat": True, "sync": True, "is_dev": True}
+        key = f"perm_{str(admin_name).strip()}"
+        raw = self.get_setting(key)
+        if not raw:
+            # الصلاحيات الافتراضية للمخول الثانوي (ممنوع من البيانات نهائياً، وله الإشعارات والدردشة والمزامنة)
+            return {"data": False, "notif": True, "chat": True, "sync": True, "is_dev": False}
+        try:
+            d = json.loads(raw)
+            return {
+                "data": False,  # محجوب دائماً عن المخول الثانوي
+                "notif": bool(d.get("notif", True)),
+                "chat": bool(d.get("chat", True)),
+                "sync": bool(d.get("sync", True)),
+                "is_dev": False,
+            }
+        except Exception:
+            return {"data": False, "notif": True, "chat": True, "sync": True, "is_dev": False}
+
+    def set_admin_permissions(self, admin_name: str, notif: bool = True, chat: bool = True, sync: bool = True):
+        key = f"perm_{str(admin_name).strip()}"
+        payload = json.dumps({"data": False, "notif": bool(notif), "chat": bool(chat), "sync": bool(sync)})
+        self.set_setting(key, payload)
+        # رفع الصلاحيات إلى السحابة لتنطبق على هاتف المخول الثانوي فوراً
+        try:
+            safe_k = urllib.parse.quote(str(admin_name).strip()) if "urllib.parse" in globals() else str(admin_name).strip().replace(" ", "_")
+            endpoint = f"{self._firebase_url()}/admin_perms/{safe_k}.json"
+            req = urllib.request.Request(endpoint, data=payload.encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+            urllib.request.urlopen(req, timeout=6)
+        except Exception:
+            pass
+
+    def sync_admin_permissions_from_cloud(self, admin_name: str):
+        try:
+            safe_k = str(admin_name).strip().replace(" ", "_")
+            endpoint = f"{self._firebase_url()}/admin_perms/{safe_k}.json"
+            with urllib.request.urlopen(endpoint, timeout=5) as resp:
+                raw = resp.read().decode("utf-8")
+            if raw and raw != "null":
+                self.set_setting(f"perm_{str(admin_name).strip()}", raw)
+        except Exception:
+            pass
+
     def get_records(self, table="members", search_term=""):
         tbl = "admins" if table == "admins" else "members"
         cur = self.conn.cursor()

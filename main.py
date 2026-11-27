@@ -172,11 +172,17 @@ def main(page: ft.Page):
             elif route_name == "/dashboard":
                 user = page.session.get("user") or "مستخدم"
                 role = page.session.get("role") or "member"
+                phone = page.session.get("phone") or ""
+                is_dev = db.is_developer(user, phone)
+                if is_dev:
+                    role = "admin"
+                    page.session.set("role", "admin")
 
                 v_notif = NotificationsView(db, role, page)
                 v_chat = ChatView(db, user, page)
 
-                if role == "admin":
+                if is_dev:
+                    # المطور الرئيسي (Abbas Almoola): كافة الصلاحيات المطلقة للنظام
                     v_data = DataManageView(db, page)
                     v_sync = SyncSettingsView(page, db)
                     main_container = ft.Container(content=v_data, expand=True)
@@ -197,6 +203,36 @@ def main(page: ft.Page):
                             main_container.content = v_chat
                         elif idx == 3:
                             main_container.content = v_sync
+                        page.update()
+                elif role == "admin":
+                    # المخول الثانوي (المدير): محجوب نهائياً عن البيانات والسجلات، وله فقط ما يحدده المطور
+                    db.sync_admin_permissions_from_cloud(user)
+                    perms = db.get_admin_permissions(user, phone)
+                    v_sync = SyncSettingsView(page, db)
+                    allowed_views = []
+                    dest = []
+                    if perms.get("notif", True):
+                        allowed_views.append(v_notif)
+                        dest.append(ft.NavigationBarDestination(icon=ft.Icons.NOTIFICATIONS, label="الإشعارات"))
+                    if perms.get("chat", True):
+                        allowed_views.append(v_chat)
+                        dest.append(ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="الدردشة"))
+                    if perms.get("sync", True):
+                        allowed_views.append(v_sync)
+                        dest.append(ft.NavigationBarDestination(icon=ft.Icons.SYNC, label="المزامنة"))
+                    if not allowed_views:
+                        allowed_views = [v_chat]
+                        dest = [ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="الدردشة")]
+                    if len(dest) < 2:
+                        allowed_views.append(v_notif)
+                        dest.append(ft.NavigationBarDestination(icon=ft.Icons.NOTIFICATIONS, label="الإشعارات"))
+
+                    main_container = ft.Container(content=allowed_views[0], expand=True)
+
+                    def on_nav(e):
+                        idx = e.control.selected_index
+                        if 0 <= idx < len(allowed_views):
+                            main_container.content = allowed_views[idx]
                         page.update()
                 else:
                     main_container = ft.Container(content=v_notif, expand=True)
